@@ -120,6 +120,8 @@ The `Signify-Control-Plane` app is connected to `Austin0914/Signify-Control-Plan
 7. Disconnect/reconnect and confirm only non-terminal, unexpired commands are replayed in sequence.
 8. Check CloudWatch alarms and logs contain no bearer token, pairing code, email, or full request headers.
 
+An automated disposable-user run completed these deployed-service flows on 2026-09-20. It found and verified the fix for a DynamoDB reserved-keyword issue in snapshot ingestion. The live harness is available as `npm run test:integration:live`, but it mutates dev data and therefore requires explicit disposable-user provisioning and cleanup; it is not part of the default test command or CI workflow.
+
 Unity Editor E2E belongs to Plan 09. Vision Pro device, XR lifecycle, soak and release sign-off belong to Plan 10.
 
 ## 8. Rollback and recovery

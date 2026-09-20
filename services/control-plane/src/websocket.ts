@@ -82,8 +82,9 @@ async function onSnapshot(domain: string, stage: string, gatewayConnectionId: st
   try {
     await ddb.send(new UpdateCommand({
       TableName: env("LIVE_TABLE"), Key: { projectId: PROJECT_ID, sortKey: `DEVICE#${snapshot.deviceId}` },
-      UpdateExpression: "SET snapshot = :snapshot, ready = :true, lastSeenAt = :now, deviceStateRevision = :state",
+      UpdateExpression: "SET #snapshot = :snapshot, ready = :true, lastSeenAt = :now, deviceStateRevision = :state",
       ConditionExpression: "protocolConnectionId = :connection AND sessionId = :session AND (attribute_not_exists(deviceStateRevision) OR deviceStateRevision <= :state)",
+      ExpressionAttributeNames: { "#snapshot": "snapshot" },
       ExpressionAttributeValues: { ":snapshot": snapshot, ":true": true, ":now": nowIso(), ":state": snapshot.deviceStateRevision, ":connection": snapshot.connectionId, ":session": snapshot.sessionId },
     }));
   } catch (error) {

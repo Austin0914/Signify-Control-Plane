@@ -43,11 +43,14 @@
 - Amplify app `Signify-Control-Plane` now hosts the `main` development branch at `https://main.d3xlnrkwumb75.amplifyapp.com`. Auto-build and branch auto-deletion are enabled; Amplify Basic Auth is disabled because Cognito remains the per-person application login.
 - The backend CORS allowlist contains only that Amplify HTTPS origin. An authenticated `ANY` proxy initially intercepted browser preflight; it was replaced with explicit authenticated GET/POST/PUT routes so API Gateway handles OPTIONS without bypassing authorization on application methods.
 - Amplify build, deploy and verify succeeded. The site returned `200`; allowed-origin preflight returned `204` with the exact origin, an untrusted origin received no allow-origin header, and an unauthenticated operator request remained `401`.
+- A disposable-user live integration run passed ten groups against deployed AWS: Cognito SRP, JWT operator routes, config validation/draft conflict/publish/idempotency/revision/rollback, single-use pairing, device config auth, WebSocket hello/snapshot/heartbeat, durable command delivery, ACK-versus-terminal state, device-truth separation, forbidden payload rejection, authoritative-snapshot guards, reconnect retransmission, connection fencing, NACK, redacted export, revocation and reconnect denial.
+- The first live run exposed a DynamoDB reserved-keyword defect in snapshot ingestion. `snapshot` is now addressed through an expression-name alias; the four WebSocket bundle Lambdas were redeployed and the full live suite then passed.
+- The disposable Cognito user, all test rows in the three dev tables and the test export were deleted after verification. The four operator accounts were not modified.
 
 ## Not deployed and not claimed complete
 
 - No `demo` stack, custom domain or deployment pipeline has been created.
-- Full authenticated Lambda/API integration tests against DynamoDB/API Gateway are still needed before Plan 08 completion or promotion beyond dev.
+- Repeatable CI-safe AWS fixture provisioning/cleanup and additional negative/concurrency coverage remain before promotion beyond dev; the current live harness is deliberately opt-in and must use a disposable user.
 - Browser component/E2E tests, accessibility pass, config diff/revision UI, audit UI, export UI and revoke UI remain later Plan 08 slices.
 - Heartbeat/offline threshold is a configurable 45-second implementation default pending load/E2E evidence; retry alarms, DLQ policy, RPO/RTO and on-call notification ownership remain open.
 - The Unity latest-config Authorization header and secure token storage patch is not in this repository and remains a Plan 09 integration prerequisite.
@@ -57,7 +60,7 @@
 
 1. Replace temporary root CLI access with a least-privilege SSO/deployment role and narrow the CDK bootstrap execution policy.
 2. Complete first-login password changes for the four Cognito users and verify authenticated operator API flows.
-3. Add mocked AWS integration tests and missing Web tests, then exercise pairing, credential rotation/revocation and complete command lifecycle paths in dev.
+3. Add mocked AWS integration tests, CI-safe live fixture orchestration and missing Web tests; extend concurrency, expiry and failure-injection coverage.
 4. Decide whether the Amplify default domain is sufficient or a custom domain is required.
 5. Decide when to create the isolated `demo` stack; do not reuse the dev data plane.
 6. Hand the authenticated endpoints and fixture bundle to Plan 09.

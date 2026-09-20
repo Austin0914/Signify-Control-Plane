@@ -17,6 +17,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "check": "npm run typecheck && npm test && npm run build",
+    "test:integration:live": "node scripts/live-integration.mjs",
     "cdk:synth": "npm run build --workspace @signify/contracts && npm run build --workspace @signify/infra && npm run synth --workspace @signify/infra",
     "web:dev": "npm run dev --workspace @signify/web"
   },
@@ -24,6 +25,7 @@
     "@types/aws-lambda": "^8.10.152",
     "@types/node": "^22.15.0",
     "typescript": "^5.9.3",
-    "vitest": "^5.0.1"
+    "vitest": "^5.0.1",
+    "ws": "^8.21.3"
   }
 }
