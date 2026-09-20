@@ -46,12 +46,13 @@
 - A disposable-user live integration run passed ten groups against deployed AWS: Cognito SRP, JWT operator routes, config validation/draft conflict/publish/idempotency/revision/rollback, single-use pairing, device config auth, WebSocket hello/snapshot/heartbeat, durable command delivery, ACK-versus-terminal state, device-truth separation, forbidden payload rejection, authoritative-snapshot guards, reconnect retransmission, connection fencing, NACK, redacted export, revocation and reconnect denial.
 - The first live run exposed a DynamoDB reserved-keyword defect in snapshot ingestion. `snapshot` is now addressed through an expression-name alias; the four WebSocket bundle Lambdas were redeployed and the full live suite then passed.
 - The disposable Cognito user, all test rows in the three dev tables and the test export were deleted after verification. The four operator accounts were not modified.
+- The operator console now uses a structured, responsive workflow instead of raw JSON editing: guided session metadata, ordered section flow, catalog-backed word/text/game selectors, duplicate detection, local plus server validation, optimistic draft conflict handling, guarded publish, revision history and rollback-to-draft. Operations gained clearer truth-versus-intent cards, command lifecycle feedback, pairing/re-pairing, credential revocation, research export, localized sign-in and confirmation dialogs for dangerous actions.
 
 ## Not deployed and not claimed complete
 
 - No `demo` stack, custom domain or deployment pipeline has been created.
 - Repeatable CI-safe AWS fixture provisioning/cleanup and additional negative/concurrency coverage remain before promotion beyond dev; the current live harness is deliberately opt-in and must use a disposable user.
-- Browser component/E2E tests, accessibility pass, config diff/revision UI, audit UI, export UI and revoke UI remain later Plan 08 slices.
+- Browser component/E2E tests, a dedicated accessibility pass, visual config diff and audit-log UI remain later Plan 08 slices. Revision/rollback, export and revoke UI are implemented.
 - Heartbeat/offline threshold is a configurable 45-second implementation default pending load/E2E evidence; retry alarms, DLQ policy, RPO/RTO and on-call notification ownership remain open.
 - The Unity latest-config Authorization header and secure token storage patch is not in this repository and remains a Plan 09 integration prerequisite.
 - Unity Editor E2E is Plan 09. Vision Pro, XR lifecycle, network soak and release sign-off are Plan 10.
