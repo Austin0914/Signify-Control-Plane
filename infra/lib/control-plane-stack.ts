@@ -109,7 +109,14 @@ export class ControlPlaneStack extends Stack {
         exposeHeaders: ["etag"], allowMethods: [CorsHttpMethod.GET, CorsHttpMethod.POST, CorsHttpMethod.PUT, CorsHttpMethod.OPTIONS], maxAge: Duration.hours(1),
       },
     });
-    httpApi.addRoutes({ path: "/api/v1/{proxy+}", methods: [HttpMethod.ANY], integration: new HttpLambdaIntegration("OperatorIntegration", operatorFn), authorizer: operatorAuthorizer });
+    // Keep OPTIONS out of the authenticated proxy route so API Gateway's CORS
+    // responder can complete browser preflights before Cognito authorization.
+    httpApi.addRoutes({
+      path: "/api/v1/{proxy+}",
+      methods: [HttpMethod.GET, HttpMethod.POST, HttpMethod.PUT],
+      integration: new HttpLambdaIntegration("OperatorIntegration", operatorFn),
+      authorizer: operatorAuthorizer,
+    });
     httpApi.addRoutes({ path: "/device/v1/pairing/redeem", methods: [HttpMethod.POST], integration: new HttpLambdaIntegration("PairingIntegration", deviceFn) });
     httpApi.addRoutes({ path: "/device/v1/config/latest", methods: [HttpMethod.GET], integration: new HttpLambdaIntegration("DeviceConfigIntegration", deviceFn), authorizer: deviceAuthorizer });
 

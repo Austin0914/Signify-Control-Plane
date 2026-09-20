@@ -40,10 +40,13 @@
 - External smoke checks passed: unauthenticated operator and device-config calls returned `401`, an invalid pairing code returned `401`, and a WebSocket upgrade without a device bearer token was rejected.
 - Four new alarms initially report `INSUFFICIENT_DATA`, which is expected before their first evaluation window; this is not an `ALARM` state.
 - Four separate operator accounts were created through Cognito on 2026-09-20. All are enabled, email-verified and in `FORCE_CHANGE_PASSWORD`; addresses and temporary credentials are intentionally not stored in this repository.
+- Amplify app `Signify-Control-Plane` now hosts the `main` development branch at `https://main.d3xlnrkwumb75.amplifyapp.com`. Auto-build and branch auto-deletion are enabled; Amplify Basic Auth is disabled because Cognito remains the per-person application login.
+- The backend CORS allowlist contains only that Amplify HTTPS origin. An authenticated `ANY` proxy initially intercepted browser preflight; it was replaced with explicit authenticated GET/POST/PUT routes so API Gateway handles OPTIONS without bypassing authorization on application methods.
+- Amplify build, deploy and verify succeeded. The site returned `200`; allowed-origin preflight returned `204` with the exact origin, an untrusted origin received no allow-origin header, and an unauthenticated operator request remained `401`.
 
 ## Not deployed and not claimed complete
 
-- No Amplify app, `demo` stack, custom domain or deployment pipeline has been created.
+- No `demo` stack, custom domain or deployment pipeline has been created.
 - Full authenticated Lambda/API integration tests against DynamoDB/API Gateway are still needed before Plan 08 completion or promotion beyond dev.
 - Browser component/E2E tests, accessibility pass, config diff/revision UI, audit UI, export UI and revoke UI remain later Plan 08 slices.
 - Heartbeat/offline threshold is a configurable 45-second implementation default pending load/E2E evidence; retry alarms, DLQ policy, RPO/RTO and on-call notification ownership remain open.
@@ -54,7 +57,7 @@
 
 1. Replace temporary root CLI access with a least-privilege SSO/deployment role and narrow the CDK bootstrap execution policy.
 2. Complete first-login password changes for the four Cognito users and verify authenticated operator API flows.
-3. Confirm Amplify branch mapping, create the Amplify app, then redeploy the backend with its exact HTTPS origin for CORS.
-4. Add mocked AWS integration tests and missing Web tests, then exercise pairing, credential rotation/revocation and complete command lifecycle paths in dev.
+3. Add mocked AWS integration tests and missing Web tests, then exercise pairing, credential rotation/revocation and complete command lifecycle paths in dev.
+4. Decide whether the Amplify default domain is sufficient or a custom domain is required.
 5. Decide when to create the isolated `demo` stack; do not reuse the dev data plane.
 6. Hand the authenticated endpoints and fixture bundle to Plan 09.

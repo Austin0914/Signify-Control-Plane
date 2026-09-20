@@ -1,6 +1,6 @@
 # AWS manual setup runbook
 
-This runbook lists the remaining human actions needed for the MVP. Nothing in this repository deploys automatically. The `dev` backend and four operator invitations were created manually on 2026-09-20; Amplify and `demo` remain uncreated.
+This runbook lists the remaining human actions needed for the MVP. The `dev` backend, four operator invitations and Amplify `main` hosting were created on 2026-09-20; `demo` remains uncreated. Amplify now builds pushes to `main` automatically, while backend deployment remains manual.
 
 ## Confirmed deployment shape
 
@@ -90,7 +90,7 @@ Do not put the four email addresses or passwords in this repository.
 
 All four accounts were created on 2026-09-20 and verified as enabled, email-verified and `FORCE_CHANGE_PASSWORD`. Each operator must use the emailed temporary password and choose a new password at first login. If an invitation is not received, check spam before using `admin-create-user --message-action RESEND`; do not create a duplicate account.
 
-## 6. Create and connect the Amplify Hosting app
+## 6. Create and connect the Amplify Hosting app (completed for dev)
 
 In AWS Console: Amplify → Create new app → Host web app → GitHub → select `Austin0914/Signify-Control-Plane` and the intended branch.
 
@@ -106,6 +106,8 @@ VITE_API_URL=<HttpApiUrl stack output>
 These identifiers are configuration, not passwords. Do not add the device-token pepper to Amplify. Amplify Hosting only serves the React/Vite build; it does not own or implicitly deploy the backend stack.
 
 After Amplify assigns the branch URL, update the backend CORS origin through a reviewed CDK diff/deploy using that exact HTTPS origin. Keep Amplify's password-protection feature off unless the team deliberately wants a second shared gate; Cognito remains the actual per-person login and audit identity.
+
+The `Signify-Control-Plane` app is connected to `Austin0914/Signify-Control-Plane`, with `main` marked as a development branch and auto-build enabled. Its URL is `https://main.d3xlnrkwumb75.amplifyapp.com`; the dev HTTP API CORS allowlist was updated to that exact origin. A post-deployment smoke test verifies successful preflight only exposes an allow-origin header for this URL.
 
 ## 7. Post-deployment smoke checks
 
@@ -128,9 +130,9 @@ Unity Editor E2E belongs to Plan 09. Vision Pro device, XR lifecycle, soak and r
 - DynamoDB data issue: stop mutations, inspect CloudTrail/CloudWatch, then use point-in-time recovery into a new table. Do not overwrite the affected table in place.
 - Compromised device credential: revoke it, fence its active connection, and issue a new single-use pairing code.
 
-## Information still needed before hosting
+## Information still needed before promotion
 
-- Which branch maps to `dev` and which branch or release tag maps to `demo`.
-- The final Amplify domain after the app is connected, for exact CORS configuration.
+- Which branch or release tag should map to the future isolated `demo` environment.
+- Whether to keep the Amplify default domain or add a custom domain.
 - A least-privilege SSO/deployment role to replace account-root access.
 - Explicit approval for Amplify setup, user creation and any future `demo` deployment. The completed `dev` backend approval does not imply those actions.
