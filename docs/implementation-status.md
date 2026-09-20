@@ -26,10 +26,24 @@
 - CDK synth with Lambda bundling in `ap-northeast-3`.
 - `npm audit`: zero known vulnerabilities after upgrading to Vitest 5.
 
+## Dev deployment completed on 2026-09-20
+
+- `CDKToolkit` was bootstrapped in the selected AWS account, Region `ap-northeast-3`. The default bootstrap CloudFormation execution policy is broad (`AdministratorAccess`) and should be narrowed before routine deployment ownership is transferred.
+- CloudFormation stack `SignifyControlPlane-dev` reached `CREATE_COMPLETE` in `ap-northeast-3`.
+- Stack outputs:
+  - HTTP API: `https://15f5hxwl22.execute-api.ap-northeast-3.amazonaws.com`
+  - WebSocket API: `wss://ilzahq1m7a.execute-api.ap-northeast-3.amazonaws.com/dev`
+  - Cognito user pool: `ap-northeast-3_3cbodDNKb`
+  - Cognito Web client: `6eeg8nb6n74n1mmog60s43uj7h`
+- The stack created isolated `signify-control-dev-*` Lambdas, DynamoDB tables, roles, log groups and export bucket plus Cognito, API Gateway, Secrets Manager and CloudWatch resources. It did not modify any `signfy-recordings-*` resource.
+- All three DynamoDB tables have point-in-time recovery enabled. The export bucket blocks every public-access mode. Cognito self-sign-up remains disabled and MFA is off per the approved four-account MVP decision.
+- External smoke checks passed: unauthenticated operator and device-config calls returned `401`, an invalid pairing code returned `401`, and a WebSocket upgrade without a device bearer token was rejected.
+- Four new alarms initially report `INSUFFICIENT_DATA`, which is expected before their first evaluation window; this is not an `ALARM` state.
+
 ## Not deployed and not claimed complete
 
-- No AWS account, Amplify app, Cognito user, API, Lambda, table, bucket, secret, alarm, role or pipeline has been created.
-- Lambda/API integration tests against DynamoDB/API Gateway are still needed before a dev deployment.
+- No Amplify app, Cognito operator user, `demo` stack, custom domain or deployment pipeline has been created.
+- Full authenticated Lambda/API integration tests against DynamoDB/API Gateway are still needed before Plan 08 completion or promotion beyond dev.
 - Browser component/E2E tests, accessibility pass, config diff/revision UI, audit UI, export UI and revoke UI remain later Plan 08 slices.
 - Heartbeat/offline threshold is a configurable 45-second implementation default pending load/E2E evidence; retry alarms, DLQ policy, RPO/RTO and on-call notification ownership remain open.
 - The Unity latest-config Authorization header and secure token storage patch is not in this repository and remains a Plan 09 integration prerequisite.
@@ -37,9 +51,9 @@
 
 ## Next safe sequence
 
-1. Review this source and the synthesized `dev` template.
-2. Confirm AWS SSO/profile, Amplify branch mapping, final domain and four operator emails.
-3. Add mocked AWS integration tests and missing Web tests.
-4. Explicitly approve CDK bootstrap and a `dev`-only deployment.
-5. Run HTTP/WebSocket smoke tests without Unity, using golden fixtures.
+1. Replace temporary root CLI access with a least-privilege SSO/deployment role and narrow the CDK bootstrap execution policy.
+2. Receive the four operator emails, create the Cognito users and verify authenticated operator API flows.
+3. Confirm Amplify branch mapping, create the Amplify app, then redeploy the backend with its exact HTTPS origin for CORS.
+4. Add mocked AWS integration tests and missing Web tests, then exercise pairing, credential rotation/revocation and complete command lifecycle paths in dev.
+5. Decide when to create the isolated `demo` stack; do not reuse the dev data plane.
 6. Hand the authenticated endpoints and fixture bundle to Plan 09.

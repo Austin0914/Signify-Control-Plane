@@ -1,6 +1,6 @@
 # AWS manual setup runbook
 
-This runbook lists the human actions needed for the MVP. Nothing in this repository deploys automatically, and no AWS resource has been created by the implementation session that produced this file.
+This runbook lists the remaining human actions needed for the MVP. Nothing in this repository deploys automatically. The `dev` backend was deployed manually on 2026-09-20; Amplify, operator users and `demo` remain uncreated.
 
 ## Confirmed deployment shape
 
@@ -16,9 +16,9 @@ This runbook lists the human actions needed for the MVP. Nothing in this reposit
 - Recording Tools runtime resources do exist in `ap-northeast-3`: one WebSocket API, four Lambda functions, three DynamoDB tables, one S3 bucket and one Amplify app.
 - Their actual prefix is `signfy-recordings-*`; Plan 08 does not reuse or rename them.
 - The account GitHub OIDC provider exists, but its existing roles trust other repositories/organizations and are not suitable for this repository.
-- Existing CDK bootstrap assets and roles were found only in `ap-southeast-2`. `ap-northeast-3` still requires an explicit CDK bootstrap.
-- No Cognito user pool or active CloudFormation stack was listed in `ap-northeast-3` during the read-only check.
-- The temporary CLI login currently resolves to account root. Do not use it as the routine deployment identity.
+- CDK was subsequently bootstrapped in `ap-northeast-3`; its default CloudFormation execution policy is currently broad and must not be treated as the long-term IAM boundary.
+- `SignifyControlPlane-dev` is now active and contains a Cognito user pool plus the isolated backend resources. The prior no-stack/no-pool statement was only the pre-deployment inventory.
+- The deployment used a temporary account-root CLI session. It must be logged out after verification and must not become the routine deployment identity.
 
 ## 1. Choose how Codex or a maintainer accesses AWS
 
@@ -39,7 +39,7 @@ aws configure get region --profile YOUR_PROFILE
 
 The expected region is `ap-northeast-3`. Record the account ID privately; it does not need to be committed.
 
-## 3. Bootstrap CDK once per account and region
+## 3. Bootstrap CDK once per account and region (completed for Osaka)
 
 From the repository root, after installing dependencies:
 
@@ -50,7 +50,7 @@ npm run build
 npx cdk bootstrap aws://ACCOUNT_ID/ap-northeast-3 --app "node infra/dist/bin/app.js"
 ```
 
-Bootstrap is an AWS mutation. Review the synthesized bootstrap template and run it only when you are ready. It is shared CDK deployment infrastructure, not a Signify runtime resource.
+Bootstrap is an AWS mutation. It was completed for the selected account in `ap-northeast-3` on 2026-09-20. It is shared CDK deployment infrastructure, not a Signify runtime resource. Future work should replace the default broad execution policy with a reviewed least-privilege boundary.
 
 ## 4. Review before deploying each environment
 
@@ -126,10 +126,10 @@ Unity Editor E2E belongs to Plan 09. Vision Pro device, XR lifecycle, soak and r
 - DynamoDB data issue: stop mutations, inspect CloudTrail/CloudWatch, then use point-in-time recovery into a new table. Do not overwrite the affected table in place.
 - Compromised device credential: revoke it, fence its active connection, and issue a new single-use pairing code.
 
-## Information still needed before a real deployment
+## Information still needed before operator access and hosting
 
 - The four operator email addresses, supplied directly in Cognito or a secure channel.
-- The AWS account/profile to use and confirmation that `ap-northeast-3` is enabled.
 - Which branch maps to `dev` and which branch or release tag maps to `demo`.
 - The final Amplify domain after the app is connected, for exact CORS configuration.
-- Explicit approval for CDK bootstrap/deploy and Amplify setup. Repository implementation approval is not deployment approval.
+- A least-privilege SSO/deployment role to replace account-root access.
+- Explicit approval for Amplify setup, user creation and any future `demo` deployment. The completed `dev` backend approval does not imply those actions.
