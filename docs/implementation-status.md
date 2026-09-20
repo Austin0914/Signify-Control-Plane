@@ -39,10 +39,11 @@
 - All three DynamoDB tables have point-in-time recovery enabled. The export bucket blocks every public-access mode. Cognito self-sign-up remains disabled and MFA is off per the approved four-account MVP decision.
 - External smoke checks passed: unauthenticated operator and device-config calls returned `401`, an invalid pairing code returned `401`, and a WebSocket upgrade without a device bearer token was rejected.
 - Four new alarms initially report `INSUFFICIENT_DATA`, which is expected before their first evaluation window; this is not an `ALARM` state.
+- Four separate operator accounts were created through Cognito on 2026-09-20. All are enabled, email-verified and in `FORCE_CHANGE_PASSWORD`; addresses and temporary credentials are intentionally not stored in this repository.
 
 ## Not deployed and not claimed complete
 
-- No Amplify app, Cognito operator user, `demo` stack, custom domain or deployment pipeline has been created.
+- No Amplify app, `demo` stack, custom domain or deployment pipeline has been created.
 - Full authenticated Lambda/API integration tests against DynamoDB/API Gateway are still needed before Plan 08 completion or promotion beyond dev.
 - Browser component/E2E tests, accessibility pass, config diff/revision UI, audit UI, export UI and revoke UI remain later Plan 08 slices.
 - Heartbeat/offline threshold is a configurable 45-second implementation default pending load/E2E evidence; retry alarms, DLQ policy, RPO/RTO and on-call notification ownership remain open.
@@ -52,7 +53,7 @@
 ## Next safe sequence
 
 1. Replace temporary root CLI access with a least-privilege SSO/deployment role and narrow the CDK bootstrap execution policy.
-2. Receive the four operator emails, create the Cognito users and verify authenticated operator API flows.
+2. Complete first-login password changes for the four Cognito users and verify authenticated operator API flows.
 3. Confirm Amplify branch mapping, create the Amplify app, then redeploy the backend with its exact HTTPS origin for CORS.
 4. Add mocked AWS integration tests and missing Web tests, then exercise pairing, credential rotation/revocation and complete command lifecycle paths in dev.
 5. Decide when to create the isolated `demo` stack; do not reuse the dev data plane.

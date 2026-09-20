@@ -1,6 +1,6 @@
 # AWS manual setup runbook
 
-This runbook lists the remaining human actions needed for the MVP. Nothing in this repository deploys automatically. The `dev` backend was deployed manually on 2026-09-20; Amplify, operator users and `demo` remain uncreated.
+This runbook lists the remaining human actions needed for the MVP. Nothing in this repository deploys automatically. The `dev` backend and four operator invitations were created manually on 2026-09-20; Amplify and `demo` remain uncreated.
 
 ## Confirmed deployment shape
 
@@ -70,7 +70,7 @@ npx cdk deploy SignifyControlPlane-dev --app "node infra/dist/bin/app.js" --cont
 
 Save the stack outputs: `HttpApiUrl`, `WebSocketUrl`, `UserPoolId`, `UserPoolClientId`, and `ExportsBucketName`.
 
-## 5. Create the four operator accounts
+## 5. Create the four operator accounts (completed)
 
 In AWS Console: Cognito → User pools → `signify-control-ENV-operators` → Users → Create user.
 
@@ -87,6 +87,8 @@ aws cognito-idp admin-create-user --user-pool-id USER_POOL_ID --username PERSON_
 ```
 
 Do not put the four email addresses or passwords in this repository.
+
+All four accounts were created on 2026-09-20 and verified as enabled, email-verified and `FORCE_CHANGE_PASSWORD`. Each operator must use the emailed temporary password and choose a new password at first login. If an invitation is not received, check spam before using `admin-create-user --message-action RESEND`; do not create a duplicate account.
 
 ## 6. Create and connect the Amplify Hosting app
 
@@ -126,9 +128,8 @@ Unity Editor E2E belongs to Plan 09. Vision Pro device, XR lifecycle, soak and r
 - DynamoDB data issue: stop mutations, inspect CloudTrail/CloudWatch, then use point-in-time recovery into a new table. Do not overwrite the affected table in place.
 - Compromised device credential: revoke it, fence its active connection, and issue a new single-use pairing code.
 
-## Information still needed before operator access and hosting
+## Information still needed before hosting
 
-- The four operator email addresses, supplied directly in Cognito or a secure channel.
 - Which branch maps to `dev` and which branch or release tag maps to `demo`.
 - The final Amplify domain after the app is connected, for exact CORS configuration.
 - A least-privilege SSO/deployment role to replace account-root access.
