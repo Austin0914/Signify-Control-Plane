@@ -11,6 +11,15 @@ This runbook lists the human actions needed for the MVP. Nothing in this reposit
 - Backend: API Gateway HTTP + WebSocket APIs, Lambda, DynamoDB, S3, Cognito, Secrets Manager and CloudWatch.
 - Recording Tools resources are not shared. Only its deployment patterns were used as reference.
 
+## Verified account inventory on 2026-09-20
+
+- Recording Tools runtime resources do exist in `ap-northeast-3`: one WebSocket API, four Lambda functions, three DynamoDB tables, one S3 bucket and one Amplify app.
+- Their actual prefix is `signfy-recordings-*`; Plan 08 does not reuse or rename them.
+- The account GitHub OIDC provider exists, but its existing roles trust other repositories/organizations and are not suitable for this repository.
+- Existing CDK bootstrap assets and roles were found only in `ap-southeast-2`. `ap-northeast-3` still requires an explicit CDK bootstrap.
+- No Cognito user pool or active CloudFormation stack was listed in `ap-northeast-3` during the read-only check.
+- The temporary CLI login currently resolves to account root. Do not use it as the routine deployment identity.
+
 ## 1. Choose how Codex or a maintainer accesses AWS
 
 Preferred: create or use an AWS IAM Identity Center (SSO) permission set, then sign in locally with `aws sso login`. A short-lived role is safer and easier to revoke than an access key.
