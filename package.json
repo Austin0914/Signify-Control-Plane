@@ -1,0 +1,29 @@
+{
+  "name": "signify-control-plane",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "services/*",
+    "infra"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "npm run build --workspace @signify/contracts && npm run build --workspace @signify/control-plane && npm run build --workspace @signify/infra && npm run build --workspace @signify/web",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "check": "npm run typecheck && npm test && npm run build",
+    "cdk:synth": "npm run build --workspace @signify/contracts && npm run build --workspace @signify/infra && npm run synth --workspace @signify/infra",
+    "web:dev": "npm run dev --workspace @signify/web"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.152",
+    "@types/node": "^22.15.0",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.1"
+  }
+}

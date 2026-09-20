@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+.DS_Store
+.env
+.env.*
+!.env.example
+cdk.out/
+*.tsbuildinfo
+amplify_outputs.json
+apps/web/public/runtime-config.json
