@@ -14,7 +14,7 @@ const textOptions = [["text-1", "文本 1"], ["text-2", "文本 2"], ["text-3", 
 type SectionId = typeof sectionOptions[number][0];
 type WordId = typeof wordOptions[number][0];
 type TextId = typeof textOptions[number][0];
-type SessionConfig = {
+export type SessionConfig = {
   schemaVersion: 1;
   sessionId: string;
   configRevision: number;
@@ -127,8 +127,6 @@ export function ConfigEditor({ report }: { report: (message: string, tone?: "inf
   }
 
   const latestRevision = revisions[0]?.revision ?? 0;
-  const selectedWords = config.content.learnWord.words.map((word) => word.wordId);
-
   return <div className="config-workspace">
     <section className="page-heading"><div><span className="eyebrow">SESSION CONFIGURATION</span><h1>課程流程設定</h1><p>以表單組合課程內容，儲存為草稿後再發布給裝置。</p></div><div className="revision-summary"><span>已發布</span><strong>Revision {latestRevision || "—"}</strong><small>草稿 v{draftVersion}</small></div></section>
     {conflict && <section className="inline-alert error" role="alert"><div><strong>草稿已被其他操作者更新</strong><p>為避免覆蓋他人的修改，請重新載入最新草稿後再編輯。</p></div><button onClick={() => void loadDraft()}>重新載入</button></section>}
@@ -137,7 +135,7 @@ export function ConfigEditor({ report }: { report: (message: string, tone?: "inf
       <section className="surface form-section"><div className="section-heading"><span className="step-number">02</span><div><h2>課程流程</h2><p>點選加入或移除，並使用箭頭調整實際執行順序。</p></div></div><div className="flow-builder">{config.flow.length ? config.flow.map((section, index) => <div className="flow-step" key={section}><span className="flow-index">{String(index + 1).padStart(2, "0")}</span><strong>{labelFor(sectionOptions, section)}</strong><code>{section}</code><span className="flow-controls"><button className="icon-button" aria-label={`將 ${section} 往前`} disabled={index === 0} onClick={() => moveFlow(index, -1)}>↑</button><button className="icon-button" aria-label={`將 ${section} 往後`} disabled={index === config.flow.length - 1} onClick={() => moveFlow(index, 1)}>↓</button><button className="icon-button remove" aria-label={`移除 ${section}`} onClick={() => toggleFlow(section)}>×</button></span></div>) : <div className="empty-inline">尚未選擇任何 section</div>}</div><div className="choice-row">{sectionOptions.filter(([id]) => !config.flow.includes(id)).map(([id, label]) => <button className="choice add" key={id} onClick={() => toggleFlow(id)}>＋ {label}</button>)}</div></section>
       <section className="surface form-section"><div className="section-heading"><span className="step-number">03</span><div><h2>學習內容</h2><p>所有選項都來自已確認的 content catalog，不會傳送 Scene 名稱或 Unity reference。</p></div></div>
         <div className="subsection"><div className="subsection-title"><div><h3>Learn opening</h3><p>開場示範使用的詞彙</p></div><span className="count-pill">1 個詞彙</span></div><label className="field compact"><span>開場詞彙</span><select value={config.content.learnOpening.wordId} onChange={(event) => patchContent("learnOpening", { wordId: event.target.value as WordId })}>{wordOptions.map(([id, label]) => <option key={id} value={id}>{label} · {id}</option>)}</select></label></div>
-        <div className="subsection"><div className="subsection-title"><div><h3>Learn word 拼圖</h3><p>每個拼圖編號必須對應不同詞彙</p></div><span className={`count-pill ${new Set(selectedWords).size !== 9 ? "warning" : ""}`}>{new Set(selectedWords).size}/9 不重複</span></div><div className="puzzle-grid">{config.content.learnWord.words.map((word, index) => { const duplicate = selectedWords.indexOf(word.wordId) !== selectedWords.lastIndexOf(word.wordId); return <label className={`puzzle-field ${duplicate ? "invalid" : ""}`} key={word.puzzleNumber}><span>拼圖 {word.puzzleNumber}</span><select value={word.wordId} onChange={(event) => setPuzzleWord(index, event.target.value as WordId)}>{wordOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select>{duplicate && <small>詞彙重複</small>}</label>; })}</div></div>
+        <div className="subsection"><div className="subsection-title"><div><h3>Learn word 拼圖</h3><p>固定九個拼圖槽位；詞彙可以重複，排列順序就是教學順序</p></div><span className={`count-pill ${config.content.learnWord.words.length !== 9 ? "warning" : ""}`}>{config.content.learnWord.words.length}/9 個槽位</span></div><div className="puzzle-grid">{config.content.learnWord.words.map((word, index) => <label className="puzzle-field" key={word.puzzleNumber}><span>拼圖 {word.puzzleNumber}</span><select value={word.wordId} onChange={(event) => setPuzzleWord(index, event.target.value as WordId)}>{wordOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>)}</div></div>
         <div className="content-columns"><div className="subsection"><div className="subsection-title"><div><h3>Learn text</h3><p>選擇 1–4 段文本</p></div><span className="count-pill">{config.content.learnText.textIds.length}/4</span></div><div className="choice-row">{textOptions.map(([id, label]) => <button key={id} className={`choice ${config.content.learnText.textIds.includes(id) ? "selected" : ""}`} aria-pressed={config.content.learnText.textIds.includes(id)} onClick={() => toggleText(id)}>{label}</button>)}</div></div><div className="subsection"><div className="subsection-title"><div><h3>Gaming</h3><p>選擇遊戲會出現的詞彙</p></div><span className="count-pill">{config.content.gaming.wordIds.length}/9</span></div><div className="choice-row">{wordOptions.map(([id, label]) => <button key={id} className={`choice ${config.content.gaming.wordIds.includes(id) ? "selected" : ""}`} aria-pressed={config.content.gaming.wordIds.includes(id)} onClick={() => toggleGameWord(id)}>{label}</button>)}</div></div></div>
       </section>
       <section className="surface action-bar"><div className="save-state"><span className={`state-dot ${dirty ? "warning" : validated ? "success" : ""}`}/><div><strong>{dirty ? "有尚未儲存的修改" : validated ? "草稿已儲存並通過驗證" : "草稿已載入"}</strong><small>{issues.length ? `${issues.length} 個問題待修正` : `Draft v${draftVersion}`}</small></div></div><div className="action-group"><button className="secondary" disabled={Boolean(busy)} onClick={() => void validate()}>{busy === "validate" ? "驗證中…" : "先驗證"}</button><button disabled={Boolean(busy) || !dirty} onClick={() => void save()}>{busy === "save" ? "儲存中…" : "儲存草稿"}</button><button className="danger" disabled={Boolean(busy) || dirty || !validated || draftVersion === 0} onClick={() => setPublishConfirm(true)}>發布 revision</button></div></section>
@@ -149,11 +147,12 @@ export function ConfigEditor({ report }: { report: (message: string, tone?: "inf
   </div>;
 }
 
-function localIssues(config: SessionConfig): string[] {
+export function localIssues(config: SessionConfig): string[] {
   const issues: string[] = [];
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(config.sessionId)) issues.push("Session ID 格式不正確");
   if (config.flow.length === 0) issues.push("課程流程至少需要一個 section");
-  if (new Set(config.content.learnWord.words.map((word) => word.wordId)).size !== 9) issues.push("九個拼圖必須使用不同詞彙");
+  const puzzleNumbers = config.content.learnWord.words.map((word) => word.puzzleNumber);
+  if (puzzleNumbers.length !== 9 || new Set(puzzleNumbers).size !== 9 || puzzleNumbers.some((value) => value < 1 || value > 9)) issues.push("Learn word 必須包含拼圖編號 1–9，且每個編號恰好一次");
   if (config.content.learnText.textIds.length === 0) issues.push("Learn text 至少選擇一段文本");
   if (config.content.gaming.wordIds.length === 0) issues.push("Gaming 至少選擇一個詞彙");
   return issues;

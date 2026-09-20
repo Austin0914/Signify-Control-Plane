@@ -26,6 +26,23 @@ describe("SessionConfig v1", () => {
     config.content.learnWord.words[8]!.puzzleNumber = 8;
     expect(sessionConfigSchema.safeParse(config).success).toBe(false);
   });
+
+  it("allows repeated LearnWord word IDs while puzzle numbers remain unique", () => {
+    const config = {
+      schemaVersion: 1,
+      sessionId: "repeated-learn-word",
+      configRevision: 1,
+      contentCatalogVersion: "signify-core-1",
+      flow: ["learn-word"],
+      content: {
+        learnOpening: { wordId: "good-morning" },
+        learnWord: { words: words.map((_, index) => ({ puzzleNumber: index + 1, wordId: "good-morning" })) },
+        learnText: { textIds: ["text-1"] },
+        gaming: { wordIds: ["good-morning"] },
+      },
+    };
+    expect(sessionConfigSchema.safeParse(config).success).toBe(true);
+  });
 });
 
 describe("Unity protocol source reconciliation", () => {
