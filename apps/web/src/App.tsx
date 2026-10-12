@@ -1,24 +1,21 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api, idempotencyKey } from "./api.js";
 import { ConfigEditor } from "./ConfigEditor.js";
+import { courseStages, stageLabel as sectionLabel, phaseLabel } from "./courseStages.js";
 
-type View = "operations" | "configuration" | "data";
+type View = "operations" | "judgment" | "configuration" | "data";
 type Tone = "info" | "success" | "error";
 type Device = {
   deviceId: string; ready: boolean; lastSeenAt?: string; revokedAt?: string; snapshot?: {
-    sessionId: string; configRevision: number; deviceStateRevision: number; bootPlanState?: string;
+    sessionId: string; configRevision: number; configSource?: string; deviceStateRevision: number; bootPlanState?: string;
     currentSection: { sectionId: string; sectionInstanceId?: string; generation?: number } | null;
     transition: { state: string; target: { sectionId: string } | null } | null;
     learnWord: { phase: string; phaseEpoch: number; phaseTransitioning: boolean } | null;
     activeJudgment: { sectionInstanceId: string; attemptId: string; status: "active" } | null;
   };
 };
-type TrackedCommand = { commandId: string; status: string; commandType?: string; createdAt?: string };
+type TrackedCommand = { commandId: string; status: string; commandType?: string; createdAt?: string; deviceId?: string; judgmentKey?: string };
 
-const sections = [
-  ["landing", "Landing"], ["opening", "Opening"], ["learn-opening", "Learn opening"], ["learn-word", "Learn word"],
-  ["learn-text", "Learn text"], ["gaming", "Gaming"], ["ending", "Ending"],
-] as const;
 const terminalStatuses = ["activated", "superseded", "failed", "rejected", "expired", "judged_correct", "judged_wrong"];
 
 export function App({ email, signOut }: { email: string; signOut: (() => void) | undefined }) {
@@ -36,6 +33,11 @@ export function App({ email, signOut }: { email: string; signOut: (() => void) |
   const [revokeConfirm, setRevokeConfirm] = useState(false);
   const [exportResult, setExportResult] = useState<{ format: string; itemCount: number; downloadUrl: string; downloadExpiresInSeconds: number } | null>(null);
   const [exportBusy, setExportBusy] = useState<string | null>(null);
+  const [connectionOpen, setConnectionOpen] = useState(false);
+  const [commandBusy, setCommandBusy] = useState(false);
+  const sending = useRef(false);
+  const [submittedJudgments, setSubmittedJudgments] = useState<Record<string, boolean>>({});
+  const [publishedFlows, setPublishedFlows] = useState<Array<{ revision: number; config: { flow: string[] } }>>([]);
 
   const notify = useCallback((message: string, tone: Tone = "info") => setToast({ message, tone }), []);
   const refresh = useCallback(async (quiet = false) => {
@@ -56,23 +58,54 @@ export function App({ email, signOut }: { email: string; signOut: (() => void) |
       } catch (error) { notify(friendlyError(error), "error"); }
     };
     void poll(); const timer = window.setInterval(() => void poll(), 2000); return () => clearInterval(timer);
-  }, [notify, trackedCommand]);
+  }, [notify, trackedCommand?.commandId, trackedCommand?.status]);
 
   const device = devices.find((candidate) => candidate.deviceId === selected);
   const onlineCount = devices.filter((item) => item.ready).length;
   const actual = device?.snapshot?.currentSection?.sectionId ?? null;
   const operatorName = email.split("@")[0] || "operator";
+  const judgmentKey = device?.snapshot?.activeJudgment ? JSON.stringify([device.deviceId, device.snapshot.sessionId, device.snapshot.activeJudgment.sectionInstanceId, device.snapshot.activeJudgment.attemptId]) : null;
+  const judgmentSubmitted = Boolean(judgmentKey && submittedJudgments[judgmentKey]);
+  const canJudge = Boolean(device?.ready && judgmentKey && !commandBusy && !judgmentSubmitted);
+  const currentCommand = trackedCommand?.deviceId === selected ? trackedCommand : null;
+  const configuredFlow = device?.snapshot?.configSource === "remote" ? publishedFlows.find((item) => item.revision === device.snapshot!.configRevision)?.config.flow : undefined;
+  const flow = configuredFlow ?? courseStages.map((stage) => stage.id);
+  const bootIndex = Number(device?.snapshot?.currentSection?.sectionInstanceId?.match(/#\d+@(\d+)$/)?.[1] ?? -1);
+  const currentFlowIndex = configuredFlow && flow[bootIndex] === actual ? bootIndex : flow.filter((id) => id === actual).length === 1 ? flow.indexOf(actual ?? "") : -1;
+
+  useEffect(() => {
+    let cancelled = false;
+    setPublishedFlows([]);
+    if (device?.snapshot?.configSource === "remote" && device.snapshot.configRevision) void api<{ items: typeof publishedFlows }>("/api/v1/projects/default/config/revisions")
+      .then((result) => { if (!cancelled) setPublishedFlows(result.items); })
+      .catch(() => { /* The standard stage guide remains available when the revision is unavailable. */ });
+    return () => { cancelled = true; };
+  }, [device?.snapshot?.configRevision, device?.snapshot?.configSource, selected]);
+
+  useEffect(() => {
+    if (trackedCommand?.judgmentKey && ["failed", "rejected", "expired", "superseded"].includes(trackedCommand.status)) {
+      const key = trackedCommand.judgmentKey;
+      setSubmittedJudgments((current) => { const next = { ...current }; delete next[key]; return next; });
+    }
+  }, [trackedCommand?.judgmentKey, trackedCommand?.status]);
+
+  useEffect(() => { if (!toast || toast.tone === "error") return; const timer = window.setTimeout(() => setToast(null), 4000); return () => clearTimeout(timer); }, [toast]);
 
   async function send(commandType: string, payload: unknown) {
-    if (!device?.ready || !device.snapshot) return notify("裝置尚未完成 hello + authoritative snapshot，現在不能送指令。", "error");
+    if (sending.current) return;
+    if (!device?.ready || !device.snapshot) return notify("裝置尚未連線完成，請稍候再操作。", "error");
+    if (commandType === "force_judgment" && (!judgmentKey || judgmentSubmitted)) return;
+    sending.current = true; setCommandBusy(true);
     try {
       const result = await api<TrackedCommand>("/api/v1/projects/default/commands", {
         method: "POST", headers: { "idempotency-key": idempotencyKey() },
         body: JSON.stringify({ deviceId: device.deviceId, sessionId: device.snapshot.sessionId, configRevision: device.snapshot.configRevision, expectedDeviceStateRevision: device.snapshot.deviceStateRevision, commandType, payload }),
       });
-      setTrackedCommand({ ...result, commandType });
-      notify("指令已排入佇列；等待 Unity ACK 與 terminal result。", "success");
-    } catch (error) { notify(friendlyError(error), "error"); }
+      setTrackedCommand({ ...result, status: result.status ?? "queued", commandType, deviceId: device.deviceId, ...(commandType === "force_judgment" && judgmentKey ? { judgmentKey } : {}) });
+      if (commandType === "force_judgment" && judgmentKey) setSubmittedJudgments((current) => ({ ...current, [judgmentKey]: true }));
+      if (commandType !== "force_judgment") notify("操作已送出，等待裝置完成。", "success");
+    } catch (error) { notify(friendlyError(error), "error"); void refresh(true); }
+    finally { sending.current = false; setCommandBusy(false); }
   }
 
   async function navigate() {
@@ -97,7 +130,7 @@ export function App({ email, signOut }: { email: string; signOut: (() => void) |
     setModalBusy(true);
     try {
       await api(`/api/v1/projects/default/devices/${encodeURIComponent(device.deviceId)}/revoke`, { method: "POST" });
-      setRevokeConfirm(false); await refresh(); notify(`${device.deviceId} 的 credential 已撤銷。`, "success");
+      setRevokeConfirm(false); await refresh(); notify(`${device.deviceId} 的存取權已撤銷。`, "success");
     } catch (error) { notify(friendlyError(error), "error"); }
     finally { setModalBusy(false); }
   }
@@ -111,11 +144,12 @@ export function App({ email, signOut }: { email: string; signOut: (() => void) |
     finally { setExportBusy(null); }
   }
 
-  return <div className="app-shell">
+  return <div className={`app-shell ${view === "judgment" ? "judgment-mode" : view === "configuration" ? "configuration-mode" : ""}`}>
     <aside className="app-sidebar">
       <div className="brand"><span className="brand-mark">S</span><div><strong>Signify</strong><small>課程控制台</small></div></div>
       <nav aria-label="主要導覽">
         <button className={view === "operations" ? "active" : ""} onClick={() => setView("operations")}><span>⌁</span><div>裝置控制</div></button>
+        <button className={view === "judgment" ? "active" : ""} onClick={() => setView("judgment")}><span>◎</span><div>人工判斷</div></button>
         <button className={view === "configuration" ? "active" : ""} onClick={() => setView("configuration")}><span>☷</span><div>課程設定</div></button>
         <button className={view === "data" ? "active" : ""} onClick={() => setView("data")}><span>↓</span><div>資料匯出</div></button>
       </nav>
@@ -124,28 +158,36 @@ export function App({ email, signOut }: { email: string; signOut: (() => void) |
     </aside>
 
     <main className="app-main">
-      {view === "operations" && <>
-        <section className="page-heading operations-heading"><div><span className="eyebrow">即時操作</span><h1>裝置控制</h1><p>先確認裝置目前畫面，再選擇你要前往的課程階段。</p></div><div className="heading-actions"><button className="secondary" onClick={() => void refresh()}>↻ 重新整理</button><button onClick={() => openPairing()}>＋ 配對裝置</button></div></section>
-        <section className="demo-status surface"><div><span className={`health-dot ${onlineCount ? "online" : ""}`}/><strong>{onlineCount ? `${onlineCount} 台裝置可操作` : "等待裝置連線"}</strong><span>{devices.length ? `共 ${devices.length} 台已配對` : "尚未配對裝置"}</span></div>{trackedCommand && <div className="latest-action"><span>最近操作</span><strong>{commandLabel(trackedCommand.status)}</strong></div>}</section>
-        <div className="operations-grid">
-          <section className="surface device-panel"><div className="panel-heading"><div><span className="eyebrow">選擇裝置</span><h2>裝置列表</h2></div><button className="icon-button" aria-label="新增配對" onClick={() => openPairing()}>＋</button></div>
-            {devices.length ? <div className="device-list">{devices.map((item) => <button key={item.deviceId} className={`device-row ${selected === item.deviceId ? "selected" : ""}`} onClick={() => { setSelected(item.deviceId); setDesired(null); }}><span className={`device-status ${item.ready ? "online" : ""}`}/><div><strong>{item.deviceId}</strong><small>{item.ready ? "可以操作" : item.revokedAt ? "存取權已撤銷" : "離線或連線中"}</small></div><span>›</span></button>)}</div> : <div className="empty-state"><span>＋</span><strong>尚未配對裝置</strong><p>先建立配對碼，再到 Unity 輸入。</p><button onClick={() => openPairing()}>配對第一台裝置</button></div>}
-          </section>
-          <div className="device-workspace">
-            {!device ? <section className="surface empty-device"><span>⌁</span><h2>選擇一台裝置</h2><p>從左側選取裝置，或先建立新的配對。</p></section> : <>
-              <section className="device-title"><div><span className={`device-status large ${device.ready ? "online" : ""}`}/><div><span className="eyebrow">目前裝置</span><h2>{device.deviceId}</h2><p>{device.ready ? `最後同步：${relativeTime(device.lastSeenAt)}` : "裝置目前離線或仍在同步"}</p></div></div><div className="heading-actions"><button className="secondary" onClick={() => openPairing(device.deviceId)}>重新配對</button><button className="text-danger" onClick={() => setRevokeConfirm(true)}>撤銷存取權</button></div></section>
-              <div className="truth-intent-grid">
-                <section className="surface truth-card"><div className="card-kicker"><span className="truth-mark">✓</span>裝置目前畫面</div><strong className="section-name">{sectionLabel(actual)}</strong><p className="truth-summary">{device.ready ? "這是裝置最後一次回報的實際狀態" : "等待裝置完成同步"}</p><details className="technical-details"><summary>查看技術詳細資料</summary><dl><div><dt>Section instance</dt><dd>{device.snapshot?.currentSection?.sectionInstanceId ?? "—"}</dd></div><div><dt>Device state revision</dt><dd>{device.snapshot?.deviceStateRevision ?? "—"}</dd></div><div><dt>Config revision</dt><dd>{device.snapshot?.configRevision ?? "—"}</dd></div><div><dt>Transition</dt><dd>{device.snapshot?.transition?.state ?? "idle / unknown"}</dd></div><div><dt>Boot plan</dt><dd>{device.snapshot?.bootPlanState ?? "—"}</dd></div></dl></details></section>
-                <section className="surface intent-card"><div className="card-kicker"><span className="intent-mark">→</span>前往其他畫面</div><h3>選擇課程階段</h3><div className="section-picker">{sections.map(([id, label]) => <button key={id} className={`${desired === id ? "selected" : ""} ${actual === id ? "actual" : ""}`} disabled={!device.ready} onClick={() => setDesired(id)}><span>{label}</span>{actual === id && <small>目前</small>}</button>)}</div><div className="intent-footer"><p>{desired && desired !== actual ? <>將從 <strong>{sectionLabel(actual)}</strong> 前往 <strong>{sectionLabel(desired)}</strong></> : "選擇目的地後再送出。裝置會自行判斷是否能安全切換。"}</p><button disabled={!device.ready || !desired || desired === actual} onClick={() => void navigate()}>前往此階段</button></div></section>
-              </div>
-              {trackedCommand && <section className={`command-tracker surface status-${trackedCommand.status}`}><div><span className="pulse-dot"/><div><span className="eyebrow">操作進度</span><strong>{commandLabel(trackedCommand.status)}</strong><details className="inline-details"><summary>技術資訊</summary><small>{trackedCommand.commandType ?? "command"} · {shortId(trackedCommand.commandId)}</small></details></div></div><div className="lifecycle"><span className="done">已送出</span><i/><span className={statusReached(trackedCommand.status, "accepted") ? "done" : ""}>已接收</span><i/><span className={terminalStatuses.includes(trackedCommand.status) ? "done" : ""}>已完成</span></div></section>}
-              <div className="control-grid"><section className="surface control-card"><div><span className="control-icon">↻</span><h3>同步與階段</h3><p>要求完整快照，或在 LearnWord 穩定階段前進。</p></div><div className="stack-actions"><button className="secondary" disabled={!device.ready} onClick={() => void send("request_snapshot", {})}>要求完整快照</button><button disabled={!device.snapshot?.learnWord || device.snapshot.learnWord.phaseTransitioning} onClick={() => void send("advance_subsection", { expectedPhase: device.snapshot!.learnWord!.phase, expectedPhaseEpoch: device.snapshot!.learnWord!.phaseEpoch })}>LearnWord 下一階段</button></div></section>
-                <section className="surface control-card"><div><span className="control-icon">◎</span><h3>人工判定</h3><p>{device.snapshot?.activeJudgment ? "目前有一筆手勢等待判定" : "尚未出現可以判定的手勢"}</p></div><div className="judgment-actions"><button disabled={!device.snapshot?.activeJudgment} onClick={() => void send("force_judgment", { outcome: "correct" })}>✓ 正確</button><button className="danger" disabled={!device.snapshot?.activeJudgment} onClick={() => void send("force_judgment", { outcome: "wrong" })}>× 錯誤</button></div></section></div>
-              <details className="technical-details operations-notes"><summary>操作原則與技術說明</summary><p>畫面永遠以裝置回報為準。指令顯示「已接收」只代表 Unity 收到要求，不代表課程畫面已完成切換；完成後才會更新上方的裝置目前畫面。</p></details>
-            </>}
+      {(view === "operations" || view === "judgment") && <>
+        <section className="page-heading operations-heading"><div><h1>{view === "judgment" ? "人工判斷" : "裝置控制"}</h1>{view === "operations" && <p>確認目前課程階段，再選擇要前往的位置。</p>}</div></section>
+        <section className="surface connection-panel">
+          <button className="connection-toggle" aria-expanded={connectionOpen} aria-controls="connection-content" onClick={() => setConnectionOpen(!connectionOpen)}>
+            <span className={`health-dot ${device?.ready ? "online" : ""}`}/><span className="connection-summary"><strong>裝置連線</strong><span>{device ? `${device.deviceId} · ${device.ready ? "已連線" : device.revokedAt ? "已撤銷" : "未連線"}` : "尚未選擇裝置"}</span></span><span className="connection-toggle-label">{connectionOpen ? "收合 −" : "展開 ＋"}</span>
+          </button>
+          <div id="connection-content" className="connection-content" hidden={!connectionOpen}>
+            <div className="connection-toolbar"><p>選擇或配對裝置，完成後可收合此區塊。</p><div className="heading-actions"><button className="secondary" onClick={() => void refresh()}>↻ 更新裝置狀態</button><button onClick={() => openPairing()}>＋ 配對裝置</button></div></div>
+            {devices.length ? <div className="device-list">{devices.map((item) => <button key={item.deviceId} aria-pressed={selected === item.deviceId} className={`device-row ${selected === item.deviceId ? "selected" : ""}`} onClick={() => { setSelected(item.deviceId); setDesired(null); }}><span className={`device-status ${item.ready ? "online" : ""}`}/><div><strong>{item.deviceId}</strong><small>{item.ready ? "可以操作" : item.revokedAt ? "存取權已撤銷" : "離線或連線中"}</small></div><span>{selected === item.deviceId ? "✓" : "›"}</span></button>)}</div> : <div className="empty-inline">尚未配對裝置，請先建立配對碼，再到 Unity 輸入。</div>}
+            {device && <div className="connection-device-actions"><span>{device.ready ? `最後回報：${relativeTime(device.lastSeenAt)}` : "等待裝置連線"}</span><div className="heading-actions"><button className="secondary" disabled={!device.ready || commandBusy} onClick={() => void send("request_snapshot", {})}>更新目前課程階段</button><button className="secondary" onClick={() => openPairing(device.deviceId)}>重新配對</button><button className="text-danger" onClick={() => setRevokeConfirm(true)}>撤銷存取權</button></div></div>}
           </div>
-        </div>
+        </section>
       </>}
+
+      {view === "operations" && <div className="operations-workspace">
+        {!device ? <section className="surface empty-device"><span>⌁</span><h2>先選擇一台裝置</h2><p>展開上方的裝置連線區塊，選擇或配對裝置。</p><button onClick={() => setConnectionOpen(true)}>展開裝置連線</button></section> : <>
+          <section className="surface current-stage"><div><span className="card-kicker"><span className="truth-mark">●</span>{device.ready ? "目前課程階段" : "最後回報的課程階段"}</span><strong className="section-name">{sectionLabel(actual)}</strong><p>{device.ready ? "依裝置回報更新" : "裝置未連線，這個階段可能已改變"} · {relativeTime(device.lastSeenAt)}</p></div>{device.snapshot?.learnWord && actual === "learn-word" && <div className="learning-progress"><span>單字學習進度</span><strong>{phaseLabel(device.snapshot.learnWord.phase)}</strong><button disabled={!device.ready || commandBusy || device.snapshot.learnWord.phaseTransitioning || ["exit", "completed"].includes(device.snapshot.learnWord.phase)} onClick={() => void send("advance_subsection", { expectedPhase: device.snapshot!.learnWord!.phase, expectedPhaseEpoch: device.snapshot!.learnWord!.phaseEpoch })}>前進到下一步 →</button></div>}</section>
+          <section className="surface course-navigation"><div className="navigation-heading"><div><h2>選擇課程階段</h2><p>{configuredFlow ? "這台裝置載入的課程順序，由上往下排列。" : "標準階段導覽，由上往下排列；實際課程以裝置載入的設定為準。"}點選目的地，再送出切換。</p></div><div className="flow-legend"><span><i className="current-dot"/>目前階段</span><span><i className="target-dot"/>選擇目的地</span></div></div>
+            <ol className="course-flow">{flow.map((id, index) => { const stage = courseStages.find((item) => item.id === id); return <li key={`${id}-${index}`} className={`${currentFlowIndex === index ? "current" : ""} ${desired === id ? "target" : ""}`}><span className="flow-node">{String(index + 1).padStart(2, "0")}</span><button disabled={!device.ready || commandBusy} aria-pressed={desired === id} onClick={() => setDesired(id)}><span className="stage-copy"><strong>{sectionLabel(id)}</strong><small>{stage?.name} · {stage?.description}</small></span><span className="stage-tags">{currentFlowIndex === index && <span className="stage-current">目前階段</span>}{desired === id && <span className="stage-target">已選擇</span>}</span></button></li>; })}</ol>
+            {configuredFlow && courseStages.some((stage) => !flow.includes(stage.id)) && <div className="other-stages"><span>其他可前往的階段</span><div className="choice-row">{courseStages.filter((stage) => !flow.includes(stage.id)).map((stage) => <button key={stage.id} className={`choice ${desired === stage.id ? "selected" : ""}`} aria-pressed={desired === stage.id} disabled={!device.ready || commandBusy} onClick={() => setDesired(stage.id)}>{stage.label}{actual === stage.id ? "（目前）" : ""}</button>)}</div></div>}
+            <div className="intent-footer"><p>{desired === actual && desired ? "已在這個階段，請選擇其他目的地。" : desired ? <>從 <strong>{sectionLabel(actual)}</strong> 前往 <strong>{sectionLabel(desired)}</strong></> : "尚未選擇目的地"}</p><button disabled={!device.ready || commandBusy || !desired || desired === actual} onClick={() => void navigate()}>前往{desired ? `「${sectionLabel(desired)}」` : "此階段"} →</button></div>
+          </section>
+          {currentCommand && <section className={`command-tracker surface status-${currentCommand.status}`} aria-live="polite"><span>最近操作</span><strong>{commandLabel(currentCommand.status)}</strong></section>}
+        </>}
+      </div>}
+
+      {view === "judgment" && <section className="judgment-workspace" aria-label="手勢人工判斷">
+        <div className="judgment-status" role="status"><span className={`health-dot ${canJudge ? "online" : ""}`}/><div><strong>{!device ? "請先選擇裝置" : !device.ready ? "等待裝置連線" : commandBusy ? "正在送出判斷…" : judgmentSubmitted ? "已送出，等待下一筆手勢" : judgmentKey ? "這筆手勢可以判斷" : "等待下一筆手勢"}</strong><span>{device ? `${device.deviceId} · ${sectionLabel(actual)}` : "展開上方裝置連線，選擇要操作的裝置"}</span></div>{currentCommand?.commandType === "force_judgment" && <span className="judgment-result">{commandLabel(currentCommand.status)}</span>}</div>
+        <div className="large-judgment-actions"><button className="judgment-correct" disabled={!canJudge} onClick={() => void send("force_judgment", { outcome: "correct" })}><span aria-hidden="true">✓</span><strong>正確</strong></button><button className="judgment-wrong" disabled={!canJudge} onClick={() => void send("force_judgment", { outcome: "wrong" })}><span aria-hidden="true">×</span><strong>錯誤</strong></button></div>
+      </section>}
 
       {view === "configuration" && <ConfigEditor report={notify}/>}
 
@@ -156,8 +198,8 @@ export function App({ email, signOut }: { email: string; signOut: (() => void) |
 
     {pairingOpen && <div className="modal" role="dialog" aria-modal="true" aria-labelledby="pair-title"><div className="modal-card pairing-card"><span className="modal-icon">⌁</span><h2 id="pair-title">{pairing ? "配對碼已建立" : pairingDeviceId ? "重新配對裝置" : "配對新裝置"}</h2>{pairing ? <><p>回到 Unity 的配對視窗輸入這組代碼。代碼只會顯示這一次。</p><button className="pairing-code" onClick={() => void navigator.clipboard.writeText(pairing.pairingCode)}><code>{pairing.pairingCode}</code><small>點一下複製</small></button><div className="expiry"><span>◷</span>五分鐘內有效 · {pairing.deviceId}</div><div className="modal-actions"><button onClick={() => setPairingOpen(false)}>完成</button></div></> : <><p>替裝置取一個容易辨識的名稱，例如「demo-vision-pro」。</p><label className="field"><span>裝置名稱</span><input autoFocus value={pairingDeviceId} onChange={(event) => setPairingDeviceId(event.target.value)} placeholder="例如：demo-vision-pro"/><small>可使用英數、點、底線與連字號。</small></label><div className="modal-actions"><button className="secondary" onClick={() => setPairingOpen(false)}>取消</button><button disabled={modalBusy || !pairingDeviceId} onClick={() => void createPairing()}>{modalBusy ? "建立中…" : "建立配對碼"}</button></div></>}</div></div>}
     {endingConfirm && <ConfirmModal
-      icon="■" title="確定要前往 Ending？"
-      description={`這會要求 ${device?.deviceId ?? "裝置"} 結束目前體驗。Unity 仍會自行判斷能否切換。`}
+      icon="■" title="確定要結束課程？"
+      description={`這會要求 ${device?.deviceId ?? "裝置"} 結束目前體驗。裝置會在安全切換後結束課程。`}
       danger confirmLabel="確認送出" busy={modalBusy} onCancel={() => setEndingConfirm(false)}
       onConfirm={() => { setEndingConfirm(false); void send("navigate_section", { sectionId: "ending" }); }}
     />}
@@ -175,11 +217,8 @@ function ConfirmModal({ icon, title, description, danger, confirmLabel, busy, on
 
 function friendlyError(error: unknown) {
   if (!(error instanceof ApiError)) return "發生未預期錯誤，請稍後再試。";
-  const messages: Record<string, string> = { device_not_ready: "裝置尚未 ready，請等待 snapshot 同步。", stale_device_state: "裝置狀態已更新，請重新整理後再操作。", active_judgment_required: "目前沒有可判定的 active attempt。", stable_learn_word_phase_required: "LearnWord 正在切換階段，請稍後再試。", invalid_device_id: "裝置 ID 格式不正確。" };
+  const messages: Record<string, string> = { device_not_ready: "裝置尚未連線完成，請稍候再操作。", stale_device_state: "裝置狀態已更新，請重新整理後再操作。", active_judgment_required: "目前沒有可判斷的手勢，請等待下一筆。", stable_learn_word_phase_required: "單字學習正在切換步驟，請稍後再試。", device_state_changed: "裝置狀態已改變，正在更新，請稍後再操作。", invalid_device_id: "裝置 ID 格式不正確。" };
   return messages[error.code] ?? `操作失敗（${error.code}）`;
 }
-function shortId(value: string) { return value.length > 12 ? `${value.slice(0, 8)}…` : value; }
-function commandLabel(status: string) { return ({ queued: "已排入佇列", sent: "已送往裝置", accepted: "Unity 已接受，尚未完成", deferred: "Unity 延後處理", activated: "已啟用", superseded: "已被取代", failed: "執行失敗", rejected: "Unity 已拒絕", expired: "指令已過期", judged_correct: "已判定 Correct", judged_wrong: "已判定 Wrong" } as Record<string, string>)[status] ?? status; }
-function statusReached(status: string, target: string) { return status === target || ["accepted", "deferred", ...terminalStatuses].includes(status); }
+function commandLabel(status: string) { return ({ queued: "已排入佇列", sent: "已送往裝置", accepted: "裝置已接收，處理中", deferred: "等待目前階段完成", activated: "已啟用", superseded: "已被取代", failed: "執行失敗", rejected: "裝置未接受操作", expired: "指令已過期", judged_correct: "已判斷為正確", judged_wrong: "已判斷為錯誤" } as Record<string, string>)[status] ?? status; }
 function relativeTime(value?: string) { if (!value) return "尚無同步時間"; const seconds = Math.max(0, Math.round((Date.now() - Date.parse(value)) / 1000)); return seconds < 10 ? "剛剛" : seconds < 60 ? `${seconds} 秒前` : `${Math.floor(seconds / 60)} 分鐘前`; }
-function sectionLabel(id: string | null) { return id ? sections.find(([candidate]) => candidate === id)?.[1] ?? id : "尚無資料"; }
