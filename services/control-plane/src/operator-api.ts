@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { APIGatewayProxyHandlerV2 } from "aws-lambda";
-import { GetCommand, PutCommand, QueryCommand, ScanCommand, TransactWriteCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, PutCommand, QueryCommand, ScanCommand, TransactWriteCommand, UpdateCommand, type QueryCommandInput, type QueryCommandOutput } from "@aws-sdk/lib-dynamodb";
 import { serverCommandSchema, sessionConfigSchema, MAX_COMMAND_TTL_SECONDS, PROTOCOL_VERSION } from "@signify/contracts";
 import { commandDigest } from "@signify/contracts/digest";
 import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
@@ -162,8 +162,20 @@ async function rollback(input: unknown, actor: string) {
 }
 
 async function listDevices() {
-  const result = await ddb.send(new ScanCommand({ TableName: env("LIVE_TABLE"), FilterExpression: "entityType = :type", ExpressionAttributeValues: { ":type": "device" }, Limit: 100 }));
-  return json(200, { items: (result.Items ?? []).map((item) => ({ ...item, ready: Boolean(item.ready) && lastSeenIsFresh(item.lastSeenAt), credentialHash: undefined })) });
+  const items: NonNullable<QueryCommandOutput["Items"]> = [];
+  let cursor: QueryCommandInput["ExclusiveStartKey"];
+  do {
+    const result = await ddb.send(new QueryCommand({
+      TableName: env("LIVE_TABLE"),
+      KeyConditionExpression: "projectId = :project AND begins_with(sortKey, :prefix)",
+      FilterExpression: "entityType = :type",
+      ExpressionAttributeValues: { ":project": PROJECT_ID, ":prefix": "DEVICE#", ":type": "device" },
+      Limit: 100, ...(cursor ? { ExclusiveStartKey: cursor } : {}),
+    }));
+    items.push(...(result.Items ?? []));
+    cursor = result.LastEvaluatedKey;
+  } while (cursor);
+  return json(200, { items: items.map((item) => ({ ...item, ready: Boolean(item.ready) && lastSeenIsFresh(item.lastSeenAt), credentialHash: undefined })) });
 }
 
 async function createPairingCode(input: unknown, actor: string) {
