@@ -54,8 +54,8 @@
 - Repeatable CI-safe AWS fixture provisioning/cleanup and additional negative/concurrency coverage remain before promotion beyond dev; the current live harness is deliberately opt-in and must use a disposable user.
 - Browser component/E2E tests, a dedicated accessibility pass, visual config diff and audit-log UI remain later Plan 08 slices. Revision/rollback, export and revoke UI are implemented.
 - Heartbeat/offline threshold is a configurable 45-second implementation default pending load/E2E evidence; retry alarms, DLQ policy, RPO/RTO and on-call notification ownership remain open.
-- The Unity latest-config Authorization header and secure token storage patch is not in this repository and remains a Plan 09 integration prerequisite.
-- Unity Editor E2E is Plan 09. Vision Pro, XR lifecycle, network soak and release sign-off are Plan 10.
+- Unity's latest-config bearer header and EditorPrefs smoke credential adapter live in the separate Unity project. Their real dev integration was exercised on 2026-10-13; production secure storage remains Plan 10.
+- The first Plan 09 Editor/dev walkthrough has been executed. See [Editor integration results](editor-e2e-2026-10-13.md) for evidence boundaries and remaining gaps. Complete Plan 09 acceptance is still open. Vision Pro, XR lifecycle, network soak and release sign-off are Plan 10.
 
 ## Next safe sequence
 

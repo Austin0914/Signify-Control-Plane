@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api, idempotencyKey } from "./api.js";
 import { ConfigEditor } from "./ConfigEditor.js";
 import { courseStages, stageLabel as sectionLabel, phaseLabel } from "./courseStages.js";
+import { pendingCommandIds, updateJudgmentStatus, type JudgmentCommands, type TrackedCommand } from "./commandTracking.js";
 
 type View = "operations" | "judgment" | "configuration" | "data";
 type Tone = "info" | "success" | "error";
@@ -14,10 +15,6 @@ type Device = {
     activeJudgment: { sectionInstanceId: string; attemptId: string; status: "active" } | null;
   };
 };
-type TrackedCommand = { commandId: string; status: string; commandType?: string; createdAt?: string; deviceId?: string; judgmentKey?: string };
-
-const terminalStatuses = ["activated", "superseded", "failed", "rejected", "expired", "judged_correct", "judged_wrong"];
-
 export function App({ email, signOut }: { email: string; signOut: (() => void) | undefined }) {
   const [view, setView] = useState<View>("operations");
   const [devices, setDevices] = useState<Device[]>([]);
@@ -30,13 +27,15 @@ export function App({ email, signOut }: { email: string; signOut: (() => void) |
   const [pairing, setPairing] = useState<{ pairingCode: string; expiresAt: number; deviceId: string } | null>(null);
   const [modalBusy, setModalBusy] = useState(false);
   const [endingConfirm, setEndingConfirm] = useState(false);
+  const [restartConfirm, setRestartConfirm] = useState<{ deviceId: string; sectionId: string; instanceId: string | undefined } | null>(null);
   const [revokeConfirm, setRevokeConfirm] = useState(false);
   const [exportResult, setExportResult] = useState<{ format: string; itemCount: number; downloadUrl: string; downloadExpiresInSeconds: number } | null>(null);
   const [exportBusy, setExportBusy] = useState<string | null>(null);
   const [connectionOpen, setConnectionOpen] = useState(false);
   const [commandBusy, setCommandBusy] = useState(false);
   const sending = useRef(false);
-  const [submittedJudgments, setSubmittedJudgments] = useState<Record<string, boolean>>({});
+  const [submittedJudgments, setSubmittedJudgments] = useState<JudgmentCommands>({});
+  const pollKey = JSON.stringify(pendingCommandIds(trackedCommand, submittedJudgments));
   const [publishedFlows, setPublishedFlows] = useState<Array<{ revision: number; config: { flow: string[] } }>>([]);
 
   const notify = useCallback((message: string, tone: Tone = "info") => setToast({ message, tone }), []);
@@ -50,15 +49,22 @@ export function App({ email, signOut }: { email: string; signOut: (() => void) |
 
   useEffect(() => { void refresh(); const timer = window.setInterval(() => void refresh(true), 3000); return () => clearInterval(timer); }, [refresh]);
   useEffect(() => {
-    if (!trackedCommand || terminalStatuses.includes(trackedCommand.status)) return;
+    const commandIds: string[] = JSON.parse(pollKey);
+    if (!commandIds.length) return;
+    let cancelled = false;
     const poll = async () => {
-      try {
-        const result = await api<TrackedCommand>(`/api/v1/projects/default/commands/${encodeURIComponent(trackedCommand.commandId)}`);
-        setTrackedCommand((current) => current?.commandId === trackedCommand.commandId ? { ...current, ...result } : current);
-      } catch (error) { notify(friendlyError(error), "error"); }
+      await Promise.all(commandIds.map(async (commandId) => {
+        try {
+          const result = await api<TrackedCommand>(`/api/v1/projects/default/commands/${encodeURIComponent(commandId)}`);
+          if (cancelled) return;
+          setTrackedCommand((current) => current?.commandId === commandId ? { ...current, ...result } : current);
+          setSubmittedJudgments((current) => updateJudgmentStatus(current, commandId, result.status));
+        } catch (error) { if (!cancelled) notify(friendlyError(error), "error"); }
+      }));
     };
-    void poll(); const timer = window.setInterval(() => void poll(), 2000); return () => clearInterval(timer);
-  }, [notify, trackedCommand?.commandId, trackedCommand?.status]);
+    void poll(); const timer = window.setInterval(() => void poll(), 2000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [notify, pollKey]);
 
   const device = devices.find((candidate) => candidate.deviceId === selected);
   const onlineCount = devices.filter((item) => item.ready).length;
@@ -82,13 +88,6 @@ export function App({ email, signOut }: { email: string; signOut: (() => void) |
     return () => { cancelled = true; };
   }, [device?.snapshot?.configRevision, device?.snapshot?.configSource, selected]);
 
-  useEffect(() => {
-    if (trackedCommand?.judgmentKey && ["failed", "rejected", "expired", "superseded"].includes(trackedCommand.status)) {
-      const key = trackedCommand.judgmentKey;
-      setSubmittedJudgments((current) => { const next = { ...current }; delete next[key]; return next; });
-    }
-  }, [trackedCommand?.judgmentKey, trackedCommand?.status]);
-
   useEffect(() => { if (!toast || toast.tone === "error") return; const timer = window.setTimeout(() => setToast(null), 4000); return () => clearTimeout(timer); }, [toast]);
 
   async function send(commandType: string, payload: unknown) {
@@ -102,7 +101,7 @@ export function App({ email, signOut }: { email: string; signOut: (() => void) |
         body: JSON.stringify({ deviceId: device.deviceId, sessionId: device.snapshot.sessionId, configRevision: device.snapshot.configRevision, expectedDeviceStateRevision: device.snapshot.deviceStateRevision, commandType, payload }),
       });
       setTrackedCommand({ ...result, status: result.status ?? "queued", commandType, deviceId: device.deviceId, ...(commandType === "force_judgment" && judgmentKey ? { judgmentKey } : {}) });
-      if (commandType === "force_judgment" && judgmentKey) setSubmittedJudgments((current) => ({ ...current, [judgmentKey]: true }));
+      if (commandType === "force_judgment" && judgmentKey) setSubmittedJudgments((current) => ({ ...current, [judgmentKey]: { ...result, status: result.status ?? "queued", commandType, deviceId: device.deviceId, judgmentKey } }));
       if (commandType !== "force_judgment") notify("操作已送出，等待裝置完成。", "success");
     } catch (error) { notify(friendlyError(error), "error"); void refresh(true); }
     finally { sending.current = false; setCommandBusy(false); }
@@ -110,6 +109,7 @@ export function App({ email, signOut }: { email: string; signOut: (() => void) |
 
   async function navigate() {
     if (!desired) return;
+    if (desired === actual) return setRestartConfirm({ deviceId: selected, sectionId: desired, instanceId: device?.snapshot?.currentSection?.sectionInstanceId });
     if (desired === "ending") return setEndingConfirm(true);
     await send("navigate_section", { sectionId: desired });
   }
@@ -178,7 +178,7 @@ export function App({ email, signOut }: { email: string; signOut: (() => void) |
           <section className="surface course-navigation"><div className="navigation-heading"><div><h2>選擇課程階段</h2><p>{configuredFlow ? "這台裝置載入的課程順序，由上往下排列。" : "標準階段導覽，由上往下排列；實際課程以裝置載入的設定為準。"}點選目的地，再送出切換。</p></div><div className="flow-legend"><span><i className="current-dot"/>目前階段</span><span><i className="target-dot"/>選擇目的地</span></div></div>
             <ol className="course-flow">{flow.map((id, index) => { const stage = courseStages.find((item) => item.id === id); return <li key={`${id}-${index}`} className={`${currentFlowIndex === index ? "current" : ""} ${desired === id ? "target" : ""}`}><span className="flow-node">{String(index + 1).padStart(2, "0")}</span><button disabled={!device.ready || commandBusy} aria-pressed={desired === id} onClick={() => setDesired(id)}><span className="stage-copy"><strong>{sectionLabel(id)}</strong><small>{stage?.name} · {stage?.description}</small></span><span className="stage-tags">{currentFlowIndex === index && <span className="stage-current">目前階段</span>}{desired === id && <span className="stage-target">已選擇</span>}</span></button></li>; })}</ol>
             {configuredFlow && courseStages.some((stage) => !flow.includes(stage.id)) && <div className="other-stages"><span>其他可前往的階段</span><div className="choice-row">{courseStages.filter((stage) => !flow.includes(stage.id)).map((stage) => <button key={stage.id} className={`choice ${desired === stage.id ? "selected" : ""}`} aria-pressed={desired === stage.id} disabled={!device.ready || commandBusy} onClick={() => setDesired(stage.id)}>{stage.label}{actual === stage.id ? "（目前）" : ""}</button>)}</div></div>}
-            <div className="intent-footer"><p>{desired === actual && desired ? "已在這個階段，請選擇其他目的地。" : desired ? <>從 <strong>{sectionLabel(actual)}</strong> 前往 <strong>{sectionLabel(desired)}</strong></> : "尚未選擇目的地"}</p><button disabled={!device.ready || commandBusy || !desired || desired === actual} onClick={() => void navigate()}>前往{desired ? `「${sectionLabel(desired)}」` : "此階段"} →</button></div>
+            <div className="intent-footer"><p>{desired === actual && desired ? "將重新開始這個階段，並重設目前進度。" : desired ? <>從 <strong>{sectionLabel(actual)}</strong> 前往 <strong>{sectionLabel(desired)}</strong></> : "尚未選擇目的地"}</p><button disabled={!device.ready || commandBusy || !desired} onClick={() => void navigate()}>{desired === actual && desired ? "重新開始" : "前往"}{desired ? `「${sectionLabel(desired)}」` : "此階段"} →</button></div>
           </section>
           {currentCommand && <section className={`command-tracker surface status-${currentCommand.status}`} aria-live="polite"><span>最近操作</span><strong>{commandLabel(currentCommand.status)}</strong></section>}
         </>}
@@ -202,6 +202,17 @@ export function App({ email, signOut }: { email: string; signOut: (() => void) |
       description={`這會要求 ${device?.deviceId ?? "裝置"} 結束目前體驗。裝置會在安全切換後結束課程。`}
       danger confirmLabel="確認送出" busy={modalBusy} onCancel={() => setEndingConfirm(false)}
       onConfirm={() => { setEndingConfirm(false); void send("navigate_section", { sectionId: "ending" }); }}
+    />}
+    {restartConfirm && <ConfirmModal
+      icon="↻" title={`重新開始「${sectionLabel(restartConfirm.sectionId)}」？`}
+      description="目前階段的學習進度會重設，裝置會安全離開後重新開始。"
+      confirmLabel="確認重新開始" busy={commandBusy} onCancel={() => setRestartConfirm(null)}
+      onConfirm={() => {
+        const target = restartConfirm; setRestartConfirm(null);
+        if (selected !== target.deviceId || actual !== target.sectionId || device?.snapshot?.currentSection?.sectionInstanceId !== target.instanceId)
+          return notify("目前階段已變更，請重新選擇後再操作。", "error");
+        void send("navigate_section", { sectionId: target.sectionId });
+      }}
     />}
     {revokeConfirm && <ConfirmModal
       icon="!" title="撤銷這台裝置的存取權？"

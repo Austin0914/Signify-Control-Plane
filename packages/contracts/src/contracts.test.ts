@@ -46,6 +46,18 @@ describe("SessionConfig v1", () => {
 });
 
 describe("Unity protocol source reconciliation", () => {
+  it("enforces Unity's exact 60-second TTL boundary, including millisecond drift", () => {
+    const command = {
+      protocolVersion: 1, messageType: "command", sessionId: "demo-a", configRevision: 1,
+      deviceId: "vision-pro-demo", connectionId: "conn", commandId: "cmd-ttl", serverSequence: 1,
+      issuedAt: "2026-10-12T17:50:37.509Z", commandType: "request_snapshot", payload: {},
+    };
+    expect(serverCommandSchema.safeParse({ ...command, expiresAt: "2026-10-12T17:51:37.509Z" }).success).toBe(true);
+    expect(serverCommandSchema.safeParse({ ...command, expiresAt: "2026-10-12T17:51:37.510Z" }).success).toBe(false);
+    expect(serverCommandSchema.safeParse({ ...command, expiresAt: command.issuedAt }).success).toBe(false);
+    expect(serverCommandSchema.safeParse({ ...command, expiresAt: "2026-10-12T17:50:37.508Z" }).success).toBe(false);
+  });
+
   it("allows packaged revision zero commands and hashes semantic fields only", () => {
     const base = serverCommandSchema.parse({
       protocolVersion: 1,

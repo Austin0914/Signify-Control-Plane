@@ -112,7 +112,12 @@ async function onHeartbeat(domain: string, stage: string, gatewayConnectionId: s
 async function onIngress(message: Extract<ReturnType<typeof deviceInboundMessageSchema.parse>, { messageType: "command_ack" | "command_nack" }>) {
   const status = message.messageType === "command_nack" ? "rejected" : message.ingressDisposition;
   const allowed = status === "accepted" ? ["queued", "sent", "deferred", "accepted"] : status === "deferred" ? ["queued", "sent", "deferred"] : ["queued", "sent", "rejected"];
-  await updateCommand(message.deviceId, message.serverSequence, "SET #status = :status, ingress = :message, updatedAt = :now", { ":status": status, ":message": message, ":now": nowIso() }, allowed);
+  if (message.messageType === "command_nack" && message.serverSequence === 0 && !message.commandId) return;
+  const sequence = message.messageType === "command_nack" && message.serverSequence === 0
+    ? await findCommandSequence(message.deviceId, message.commandId)
+    : message.serverSequence;
+  if (sequence === undefined) return;
+  await updateCommand(message.deviceId, sequence, "SET #status = :status, ingress = :message, updatedAt = :now", { ":status": status, ":message": message, ":now": nowIso() }, allowed);
 }
 
 async function onTerminal(message: Extract<ReturnType<typeof deviceInboundMessageSchema.parse>, { messageType: "command_result" | "judgment_result" }>) {
@@ -121,8 +126,14 @@ async function onTerminal(message: Extract<ReturnType<typeof deviceInboundMessag
 }
 
 async function sequenceForCommand(deviceId: string, commandId: string): Promise<number> {
+  const sequence = await findCommandSequence(deviceId, commandId);
+  if (sequence === undefined) throw new Error("command_not_found");
+  return sequence;
+}
+
+async function findCommandSequence(deviceId: string, commandId: string): Promise<number | undefined> {
   const result = await ddb.send(new GetCommand({ TableName: env("LIVE_TABLE"), Key: { projectId: PROJECT_ID, sortKey: `COMMAND_ID#${commandId}` }, ConsistentRead: true }));
-  if (!result.Item || result.Item.deviceId !== deviceId) throw new Error("command_not_found");
+  if (!result.Item || result.Item.deviceId !== deviceId) return undefined;
   return Number(result.Item.serverSequence);
 }
 

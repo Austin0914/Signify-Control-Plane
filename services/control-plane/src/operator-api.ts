@@ -185,7 +185,7 @@ async function createCommand(input: unknown, idempotencyKey: string | undefined,
   if (Number(request.expectedDeviceStateRevision) !== Number(live.Item.snapshot?.deviceStateRevision)) return json(409, { code: "stale_device_state", snapshot: live.Item.snapshot });
   const commandId = randomUUID();
   const issuedAt = nowIso();
-  const expiresAt = new Date(Date.now() + MAX_COMMAND_TTL_SECONDS * 1000).toISOString();
+  const expiresAt = new Date(Date.parse(issuedAt) + MAX_COMMAND_TTL_SECONDS * 1000).toISOString();
   let authoritativePayload = request.payload;
   if (request.commandType === "force_judgment") {
     const active = live.Item.snapshot?.activeJudgment;

@@ -223,7 +223,10 @@ export const serverCommandSchema = z.discriminatedUnion("commandType", [
   z.object({ ...commandBaseShape, commandType: z.literal("advance_subsection"), payload: z.object({ expectedPhase: learnWordPhaseSchema, expectedPhaseEpoch: positiveInteger }).strict() }).strict(),
   z.object({ ...commandBaseShape, commandType: z.literal("force_judgment"), payload: z.object({ sectionInstanceId: identitySchema, attemptId: identitySchema, outcome: z.enum(["correct", "wrong"]) }).strict() }).strict(),
   z.object({ ...commandBaseShape, commandType: z.literal("request_snapshot"), payload: z.object({}).strict() }).strict(),
-]);
+]).refine((command) => {
+  const ttl = Date.parse(command.expiresAt) - Date.parse(command.issuedAt);
+  return ttl > 0 && ttl <= MAX_COMMAND_TTL_SECONDS * 1000;
+}, { message: "Command TTL must be positive and no longer than 60 seconds", path: ["expiresAt"] });
 
 export const serverHelloSchema = z.object({
   protocolVersion: z.literal(PROTOCOL_VERSION),
