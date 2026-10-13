@@ -111,7 +111,9 @@ async function onHeartbeat(domain: string, stage: string, gatewayConnectionId: s
 
 async function onIngress(message: Extract<ReturnType<typeof deviceInboundMessageSchema.parse>, { messageType: "command_ack" | "command_nack" }>) {
   const status = message.messageType === "command_nack" ? "rejected" : message.ingressDisposition;
-  const allowed = status === "accepted" ? ["queued", "sent", "deferred", "accepted"] : status === "deferred" ? ["queued", "sent", "deferred"] : ["queued", "sent", "rejected"];
+  // A restarted runtime can reject a replay whose original attempt no longer exists.
+  // Accepted/deferred are ingress states; completed results still remain protected.
+  const allowed = status === "accepted" ? ["queued", "sent", "deferred", "accepted"] : status === "deferred" ? ["queued", "sent", "deferred"] : ["queued", "sent", "accepted", "deferred", "rejected"];
   if (message.messageType === "command_nack" && message.serverSequence === 0 && !message.commandId) return;
   const sequence = message.messageType === "command_nack" && message.serverSequence === 0
     ? await findCommandSequence(message.deviceId, message.commandId)

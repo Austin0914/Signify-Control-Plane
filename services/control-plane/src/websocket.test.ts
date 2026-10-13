@@ -54,4 +54,13 @@ describe("parse-failure NACK reconciliation", () => {
     expect(update.input.Key?.sortKey).toBe("COMMAND#test-device#000000000009");
     expect(mocks.send).toHaveBeenCalledTimes(2);
   });
+
+  it("allows a new runtime to reject an accepted or deferred command while protecting completed results", async () => {
+    await deliver({ ...nack, serverSequence: 9, reasonCode: "no_active_judgment", detail: "Attempt no longer exists after restart" });
+    const update = mocks.send.mock.calls.map(([command]) => command).find((command) => command instanceof UpdateCommand) as UpdateCommand;
+    const allowed = update.input.ExpressionAttributeValues?.[":allowedCurrent"];
+    expect(allowed).toEqual(expect.arrayContaining(["queued", "sent", "accepted", "deferred", "rejected"]));
+    for (const completed of ["activated", "judged_correct", "judged_wrong", "superseded", "failed", "expired"])
+      expect(allowed).not.toContain(completed);
+  });
 });
