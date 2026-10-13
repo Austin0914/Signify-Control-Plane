@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { commandDigest } from "./digest.js";
-import { commandAckSchema, commandResultSchema, deviceSnapshotSchema, serverCommandSchema, sessionConfigSchema } from "./index.js";
+import { commandAckSchema, commandResultSchema, deviceInboundMessageSchema, deviceSnapshotSchema, serverCommandSchema, sessionConfigSchema } from "./index.js";
 
 const words = [
   "good-morning", "i", "wake-up", "brush-teeth", "wash-face",
@@ -46,6 +47,19 @@ describe("SessionConfig v1", () => {
 });
 
 describe("Unity protocol source reconciliation", () => {
+  it("accepts ACK and terminal replay messages captured from the Unity writer and processor", () => {
+    const messages = JSON.parse(readFileSync(new URL("../fixtures/unity-replay-results.json", import.meta.url), "utf8")) as Array<Record<string, unknown>>;
+    expect(messages).toHaveLength(3);
+    for (const message of messages) {
+      expect(deviceInboundMessageSchema.safeParse(message).success).toBe(true);
+      expect(message.connectionId).toBe("new-connection");
+      if (message.messageType === "command_ack") expect(message.replayed).toBe(true);
+      else {
+        expect(message).not.toHaveProperty("serverSequence");
+        expect(message.deviceEventSequence).toBe(7);
+      }
+    }
+  });
   it("enforces Unity's exact 60-second TTL boundary, including millisecond drift", () => {
     const command = {
       protocolVersion: 1, messageType: "command", sessionId: "demo-a", configRevision: 1,

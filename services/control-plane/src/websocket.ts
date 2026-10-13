@@ -154,18 +154,27 @@ async function updateCommand(deviceId: string, sequence: number, expression: str
 }
 
 async function replayPending(domain: string, stage: string, gatewayConnectionId: string, deviceId: string, protocolConnectionId: string) {
-  const result = await ddb.send(new QueryCommand({
-    TableName: env("LIVE_TABLE"), KeyConditionExpression: "projectId = :p AND begins_with(sortKey, :prefix)",
-    ExpressionAttributeValues: { ":p": PROJECT_ID, ":prefix": `COMMAND#${deviceId}#` }, ScanIndexForward: true, Limit: 100,
-  }));
-  for (const item of result.Items ?? []) {
-    if (["activated", "superseded", "failed", "rejected", "expired", "judged_correct", "judged_wrong"].includes(String(item.status))) continue;
-    if (Date.parse(String(item.command.expiresAt)) <= Date.now()) {
-      await updateCommand(deviceId, Number(item.command.serverSequence), "SET #status = :status, updatedAt = :now", { ":status": "expired", ":now": nowIso() }, ["queued", "sent", "expired"]);
-      continue;
+  let cursor: Record<string, unknown> | undefined;
+  do {
+    const result = await ddb.send(new QueryCommand({
+      TableName: env("LIVE_TABLE"), KeyConditionExpression: "projectId = :p AND begins_with(sortKey, :prefix)",
+      ExpressionAttributeValues: { ":p": PROJECT_ID, ":prefix": `COMMAND#${deviceId}#` }, ScanIndexForward: true, Limit: 100,
+      ExclusiveStartKey: cursor,
+    }));
+    for (const item of result.Items ?? []) {
+      const status = String(item.status);
+      if (["activated", "superseded", "failed", "rejected", "expired", "judged_correct", "judged_wrong"].includes(status)) continue;
+      // ACKed commands may have completed while their result was lost. Replay the
+      // original envelope so Unity can return its ledger result or reject it;
+      // never extend the deadline or admit new expired work.
+      if (["queued", "sent"].includes(status) && Date.parse(String(item.command.expiresAt)) <= Date.now()) {
+        await updateCommand(deviceId, Number(item.command.serverSequence), "SET #status = :status, updatedAt = :now", { ":status": "expired", ":now": nowIso() }, ["queued", "sent", "expired"]);
+        continue;
+      }
+      await post(domain, stage, gatewayConnectionId, { ...item.command, connectionId: protocolConnectionId });
     }
-    await post(domain, stage, gatewayConnectionId, { ...item.command, connectionId: protocolConnectionId });
-  }
+    cursor = result.LastEvaluatedKey;
+  } while (cursor);
 }
 
 async function post(domain: string, stage: string, connectionId: string, payload: unknown) {

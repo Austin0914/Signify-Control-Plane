@@ -1,0 +1,47 @@
+[
+  {
+    "protocolVersion": 1,
+    "messageType": "command_ack",
+    "sessionId": "replay-session",
+    "deviceId": "replay-device",
+    "connectionId": "new-connection",
+    "commandId": "replay-command",
+    "serverSequence": 3,
+    "ingressDisposition": "accepted",
+    "authorityCode": "none",
+    "transitionId": null,
+    "targetSectionInstanceId": null,
+    "deviceStateRevision": 4,
+    "replayed": true
+  },
+  {
+    "protocolVersion": 1,
+    "messageType": "command_result",
+    "sessionId": "replay-session",
+    "deviceId": "replay-device",
+    "connectionId": "new-connection",
+    "commandId": "replay-command",
+    "result": "activated",
+    "transitionId": "transition-a",
+    "sectionId": "learn-word",
+    "sectionInstanceId": "learn-word@g2",
+    "generation": 2,
+    "failureCode": null,
+    "deviceStateRevision": 5,
+    "deviceEventSequence": 7
+  },
+  {
+    "protocolVersion": 1,
+    "messageType": "judgment_result",
+    "sessionId": "replay-session",
+    "deviceId": "replay-device",
+    "connectionId": "new-connection",
+    "commandId": "replay-command",
+    "sectionInstanceId": "learn-word@g2",
+    "attemptId": "attempt-a",
+    "outcome": "correct",
+    "source": "manual_remote",
+    "deviceStateRevision": 5,
+    "deviceEventSequence": 7
+  }
+]
