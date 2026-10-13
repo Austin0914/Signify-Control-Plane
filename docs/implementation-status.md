@@ -56,6 +56,7 @@
 - Heartbeat/offline threshold is a configurable 45-second implementation default pending load/E2E evidence; retry alarms, DLQ policy, RPO/RTO and on-call notification ownership remain open.
 - Unity's latest-config bearer header and EditorPrefs smoke credential adapter live in the separate Unity project. Their real dev integration was exercised on 2026-10-13; production secure storage remains Plan 10.
 - The first Plan 09 Editor/dev walkthrough has been executed. See [Editor integration results](editor-e2e-2026-10-13.md) for evidence boundaries and remaining gaps. Complete Plan 09 acceptance is still open. Vision Pro, XR lifecycle, network soak and release sign-off are Plan 10.
+- The 2026-10-14 follow-up deployed and verified TTL, pending-judgment recovery, zero-sequence NACK correlation, confirmed same-section restart and paginated device listing repairs. All 21 tests, typechecks, builds and functional-commit CI passed; live restart and two negative cases passed against AWS/Unity. The test device was revoked and original Editor settings restored after the complete round.
 
 ## Next safe sequence
 
