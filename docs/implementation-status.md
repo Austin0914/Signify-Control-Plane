@@ -57,6 +57,7 @@
 - Unity's latest-config bearer header and EditorPrefs smoke credential adapter live in the separate Unity project. Their real dev integration was exercised on 2026-10-13; production secure storage remains Plan 10.
 - The first Plan 09 Editor/dev walkthrough has been executed. See [Editor integration results](editor-e2e-2026-10-13.md) for evidence boundaries and remaining gaps. Complete Plan 09 acceptance is still open. Vision Pro, XR lifecycle, network soak and release sign-off are Plan 10.
 - The 2026-10-14 follow-up deployed and verified TTL, pending-judgment recovery, zero-sequence NACK correlation, confirmed same-section restart and paginated device listing repairs. All 21 tests, typechecks, builds and functional-commit CI passed; live restart and two negative cases passed against AWS/Unity. The test device was revoked and original Editor settings restored after the complete round.
+- A second focused Demo run completed eight live misuse/interruption cases and recovery to a new judgment. It fixed terminal replay wire format in Unity, accepted/deferred rejection and reconciliation after deadlines, and paginated pending replay while preserving ACK-only snapshot completion. All 28 Web/contracts/backend tests passed, as did 23 Unity Plan 06 menu checks and functional-commit CI. See [Demo E2E results](demo-e2e-2026-10-14.md). Network reconnect preserves progress within one runtime; Editor restart intentionally starts a fresh course.
 
 ## Next safe sequence
 
