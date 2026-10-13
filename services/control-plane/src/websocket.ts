@@ -164,6 +164,8 @@ async function replayPending(domain: string, stage: string, gatewayConnectionId:
     for (const item of result.Items ?? []) {
       const status = String(item.status);
       if (["activated", "superseded", "failed", "rejected", "expired", "judged_correct", "judged_wrong"].includes(status)) continue;
+      // Snapshot requests complete with their ACK; they have no terminal result.
+      if (status === "accepted" && item.command.commandType === "request_snapshot") continue;
       // ACKed commands may have completed while their result was lost. Replay the
       // original envelope so Unity can return its ledger result or reject it;
       // never extend the deadline or admit new expired work.

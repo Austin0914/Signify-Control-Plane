@@ -61,6 +61,13 @@ describe("pending command reconciliation after reconnect", () => {
     expect(expired).toHaveLength(2);
   });
 
+  it("treats an accepted snapshot request as complete without a terminal result", async () => {
+    mocks.pages = [{ Items: [{ status: "accepted", command: { ...oldCommand, commandType: "request_snapshot" } }] }];
+    await deliver(snapshot);
+    expect(mocks.post).not.toHaveBeenCalled();
+    expect(mocks.send.mock.calls.some(([command]) => command instanceof UpdateCommand && command.input.ExpressionAttributeValues?.[":status"] === "expired")).toBe(false);
+  });
+
   it("finds unresolved commands after a page containing only completed commands", async () => {
     mocks.pages = [
       { Items: [{ status: "judged_correct", command: oldCommand }], LastEvaluatedKey: { projectId: "default", sortKey: "COMMAND#test-device#100" } },
