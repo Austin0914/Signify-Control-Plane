@@ -22,7 +22,7 @@ const serviceEntry = (file: string) => path.join(dirname, "../../../services/con
 
 interface ControlPlaneStackProps extends StackProps {
   environmentName: string;
-  frontendOrigin: string;
+  frontendOrigins: string[];
 }
 
 export class ControlPlaneStack extends Stack {
@@ -105,7 +105,7 @@ export class ControlPlaneStack extends Stack {
     });
     const httpApi = new HttpApi(this, "HttpApi", {
       apiName: `signify-control-${suffix}-http`, corsPreflight: {
-        allowOrigins: [props.frontendOrigin], allowHeaders: ["authorization", "content-type", "if-match", "idempotency-key"],
+        allowOrigins: props.frontendOrigins, allowHeaders: ["authorization", "content-type", "if-match", "idempotency-key"],
         exposeHeaders: ["etag"], allowMethods: [CorsHttpMethod.GET, CorsHttpMethod.POST, CorsHttpMethod.PUT, CorsHttpMethod.OPTIONS], maxAge: Duration.hours(1),
       },
     });

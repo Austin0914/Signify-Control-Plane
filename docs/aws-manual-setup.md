@@ -60,7 +60,9 @@ npm exec --workspace @signify/infra -- cdk synth --context environment=dev --con
 npx cdk diff SignifyControlPlane-dev --app "node infra/dist/bin/app.js" --context environment=dev --context frontendOrigin=http://localhost:5173
 ```
 
-For `demo`, replace the environment and use the final Amplify URL as `frontendOrigin`. The `demo` tables, bucket, Cognito pool and secret use retain-on-stack-delete; `dev` is disposable. Never point a `dev` Web app at `demo` APIs.
+The commands above explicitly select localhost for local development. For the hosted `dev` app, use `--context frontendOrigins=https://control.hi-azuku.com,https://main.d3xlnrkwumb75.amplifyapp.com` instead of `frontendOrigin` in both diff and deploy. Running CDK from `infra/` without an origin override uses the saved `frontendOrigins:dev` allowlist in `infra/cdk.json`. Origin values must not include a trailing slash. The plural context accepts a comma-separated list; the singular context remains supported as an explicit override.
+
+For `demo`, replace the environment and explicitly use its final Amplify URL as `frontendOrigin` or `frontendOrigins`. The `demo` tables, bucket, Cognito pool and secret use retain-on-stack-delete; `dev` is disposable. Never point a `dev` Web app at `demo` APIs.
 
 Deployment, when explicitly approved:
 
@@ -107,7 +109,7 @@ These identifiers are configuration, not passwords. Do not add the device-token 
 
 After Amplify assigns the branch URL, update the backend CORS origin through a reviewed CDK diff/deploy using that exact HTTPS origin. Keep Amplify's password-protection feature off unless the team deliberately wants a second shared gate; Cognito remains the actual per-person login and audit identity.
 
-The `Signify-Control-Plane` app is connected to `Austin0914/Signify-Control-Plane`, with `main` marked as a development branch and auto-build enabled. Its URL is `https://main.d3xlnrkwumb75.amplifyapp.com`; the dev HTTP API CORS allowlist was updated to that exact origin. A post-deployment smoke test verifies successful preflight only exposes an allow-origin header for this URL.
+The `Signify-Control-Plane` app is connected to `Austin0914/Signify-Control-Plane`, with `main` marked as a development branch and auto-build enabled. The primary URL is `https://control.hi-azuku.com`; `https://main.d3xlnrkwumb75.amplifyapp.com` remains the backup. The dev HTTP API CORS allowlist must include both exact origins. Post-deployment smoke tests verify preflight exposes the matching allow-origin header for each URL, while an unrelated origin receives no allow-origin header.
 
 ## 7. Post-deployment smoke checks
 
