@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, api, idempotencyKey } from "./api.js";
 import { courseStages } from "./courseStages.js";
+import { flowIssue } from "./flowValidation.js";
 
 const sectionOptions = courseStages.map(({ id, label }) => [id, label] as const);
 const wordOptions = [
@@ -56,6 +57,7 @@ export function ConfigEditor({ report }: { report: (message: string, tone?: "inf
   const [publishConfirm, setPublishConfirm] = useState(false);
   const [rollbackTarget, setRollbackTarget] = useState<Revision | null>(null);
   const issues = useMemo(() => localIssues(config), [config]);
+  const routeIssue = useMemo(() => flowIssue(config.flow), [config.flow]);
 
   const refreshHistory = useCallback(async () => {
     const result = await api<{ items: Revision[] }>("/api/v1/projects/default/config/revisions");
@@ -137,6 +139,10 @@ export function ConfigEditor({ report }: { report: (message: string, tone?: "inf
   }
 
   async function publish() {
+    if (issues.length || dirty || !validated) {
+      setPublishConfirm(false);
+      return report("請先修正課程設定並儲存有效草稿，再發布。", "error");
+    }
     setBusy("publish");
     try {
       await api<{ revision: number }>("/api/v1/projects/default/config/publish", { method: "POST", headers: { "idempotency-key": idempotencyKey() } });
@@ -161,18 +167,20 @@ export function ConfigEditor({ report }: { report: (message: string, tone?: "inf
     <nav className="config-section-nav" aria-label="課程設定區塊">
       {([["flow", "課程順序", `${config.flow.length} 個階段`], ["content", "學習內容", "詞彙、課文與遊戲"], ["details", "課程資訊", "名稱與版本紀錄"]] as const).map(([id, label, detail]) => <button key={id} className={editorSection === id ? "selected" : ""} aria-current={editorSection === id ? "page" : undefined} aria-controls={`config-${id}`} onClick={() => setEditorSection(id)}><strong>{label}</strong><span>{detail}</span></button>)}
     </nav>
+    {!loading && issues.length > 0 && <section className="config-issues" role="alert"><strong>目前設定無法套用到裝置，請先修正</strong><ul>{issues.map((issue) => <li key={issue}>{issue}</li>)}</ul>{routeIssue && editorSection !== "flow" && <button className="secondary" onClick={() => setEditorSection("flow")}>前往課程順序</button>}</section>}
     <div className="config-layout"><div className="config-form">
       <fieldset className="config-fields" disabled={loading || Boolean(busy)}>
       {editorSection === "flow" && <section id="config-flow" className="surface form-section">
-        <div className="section-heading"><div><h2>安排課程順序</h2><p>由上往下依序進行。每個階段下方都可以直接調整位置。</p></div></div>
-        <ol className="flow-builder">{config.flow.length ? config.flow.map((section, index) => <li className={`flow-step ${movedKey === flowKeys[index] ? "recently-moved" : ""}`} key={flowKeys[index]}>
+        <div className="section-heading"><div><h2>安排課程順序</h2><p>保留的階段請依「課程開場 → 開場詞彙 → 單字學習 → 課文學習 → 遊戲練習 → 課程結束」排列，可省略不需要的學習階段。「定位與準備」可在遊戲之前重複加入。</p></div></div>
+        <ol className="flow-builder">{config.flow.length ? config.flow.map((section, index) => <li className={`flow-step ${movedKey === flowKeys[index] ? "recently-moved" : ""} ${routeIssue?.index === index ? "has-error" : ""}`} key={flowKeys[index]}>
           <span className="flow-index">{String(index + 1).padStart(2, "0")}</span>
           <div className="flow-step-body"><div className="flow-step-title"><strong>{labelFor(sectionOptions, section)}</strong><span>{courseStages.find((stage) => stage.id === section)?.description}</span></div>
+            {routeIssue?.index === index && <p className="flow-step-error">{routeIssue.message}</p>}
             <div className="flow-controls"><button className="secondary" aria-label={`將第 ${index + 1} 個「${labelFor(sectionOptions, section)}」上移`} disabled={index === 0} onClick={() => moveFlow(index, -1)}>↑ 上移</button><button className="secondary" aria-label={`將第 ${index + 1} 個「${labelFor(sectionOptions, section)}」下移`} disabled={index === config.flow.length - 1} onClick={() => moveFlow(index, 1)}>↓ 下移</button><button className="flow-remove" aria-label={`移除第 ${index + 1} 個「${labelFor(sectionOptions, section)}」`} onClick={() => removeFlow(index)}>× 移除</button></div>
           </div>
         </li>) : <li className="empty-inline">尚未加入課程階段，請從下方選擇。</li>}</ol>
         <div className="flow-feedback" role="status"><span>{flowAnnouncement || "先安排順序，再到「學習內容」選擇教材。"}</span>{removedStep && <button className="secondary" onClick={undoRemove}>↶ 復原移除</button>}</div>
-        <div className="add-stages"><h3>加入課程階段</h3><div className="choice-row">{sectionOptions.filter(([id]) => id === "landing" || !config.flow.includes(id)).map(([id, label]) => <button className="choice add" key={id} onClick={() => addFlow(id)}>＋ {id === "landing" && config.flow.includes(id) ? "再加入定位與準備" : label}</button>)}</div><p>定位與準備可以在課程中重複安排。</p></div>
+        <div className="add-stages"><h3>加入課程階段</h3><div className="choice-row">{sectionOptions.filter(([id]) => id === "landing" || !config.flow.includes(id)).map(([id, label]) => <button className="choice add" key={id} onClick={() => addFlow(id)}>＋ {id === "landing" && config.flow.includes(id) ? "再加入定位與準備" : label}</button>)}</div><p>定位與準備可在遊戲之前重複安排，但不可連續相鄰。</p></div>
       </section>}
       {editorSection === "content" && <section id="config-content" className="content-editor">
         <div className="content-intro"><h2>選擇學習內容</h2><p>展開要修改的教材，每次專心調整一個區塊。</p></div>
@@ -185,7 +193,6 @@ export function ConfigEditor({ report }: { report: (message: string, tone?: "inf
       </fieldset>
       <details className="surface revision-rail" hidden={editorSection !== "details"}><summary><span><strong>版本紀錄與復原</strong><small>需要查看舊版本或復原時再展開</small></span><span>展開</span></summary><div className="revision-body"><div className="revision-toolbar"><p>選擇舊版本只會建立草稿，不會立即影響裝置。</p><button className="secondary small" onClick={() => void refreshHistory()}>↻ 重新整理</button></div>{loading ? <div className="skeleton-list"><i/><i/><i/></div> : revisions.length ? <div className="revision-list">{revisions.map((revision, index) => <article className="revision-card" key={revision.revision}><div><span className={index === 0 ? "status-badge success" : "status-badge"}>{index === 0 ? "目前使用" : "歷史版本"}</span><strong>版本 {revision.revision}</strong><small>{formatTime(revision.publishedAt)}</small></div><button className="secondary small" disabled={Boolean(busy)} onClick={() => setRollbackTarget(revision)}>使用這個版本建立草稿</button></article>)}</div> : <div className="empty-state compact"><span>◇</span><strong>尚無發布紀錄</strong><p>先儲存並發布第一份設定。</p></div>}</div></details>
     </div></div>
-    {issues.length > 0 && <section className="config-issues" role="alert"><strong>儲存前需要處理</strong><ul>{issues.map((issue) => <li key={issue}>{issue}</li>)}</ul></section>}
     <section className="surface action-bar"><div className="save-state"><span className={`state-dot ${dirty ? "warning" : validated ? "success" : ""}`}/><div><strong>{loading ? "正在載入課程…" : dirty ? "有尚未儲存的修改" : published ? "課程已發布" : validated ? "草稿已檢查，可以發布" : "課程草稿已載入"}</strong><small>{issues.length ? `${issues.length} 個問題待修正` : dirty || draftVersion === 0 ? "儲存時會自動檢查設定" : validated ? "發布後於裝置下次載入套用" : "檢查設定後即可發布"}</small></div></div><div className="action-group"><button className="secondary" disabled={loading || Boolean(busy) || issues.length > 0 || validated && !dirty && draftVersion > 0} onClick={() => void (dirty || draftVersion === 0 ? save() : validate())}>{busy === "save" ? "儲存中…" : busy === "validate" ? "檢查中…" : dirty || draftVersion === 0 ? "儲存草稿" : validated ? "草稿已儲存 ✓" : "檢查設定"}</button><button className="publish-button" disabled={loading || Boolean(busy) || published || dirty || !validated || draftVersion === 0 || issues.length > 0} onClick={() => setPublishConfirm(true)}>{published ? "已發布 ✓" : "發布課程"}</button></div></section>
     {publishConfirm && <div className="modal" role="dialog" aria-modal="true" aria-labelledby="publish-title"><div className="modal-card"><span className="modal-icon warning">↑</span><h2 id="publish-title">發布目前的課程設定？</h2><p>發布後，裝置會在下次載入時取得這份設定。正在執行中的裝置不會被強制中斷。</p><div className="modal-actions"><button className="secondary" onClick={() => setPublishConfirm(false)}>返回檢查</button><button className="publish-button" disabled={busy === "publish"} onClick={() => void publish()}>{busy === "publish" ? "發布中…" : "確認發布"}</button></div></div></div>}
     {rollbackTarget && <div className="modal" role="dialog" aria-modal="true" aria-labelledby="rollback-title"><div className="modal-card"><span className="modal-icon">↶</span><h2 id="rollback-title">從版本 {rollbackTarget.revision} 建立草稿？</h2><p>目前草稿會被這個歷史版本取代，但不會立即發布到裝置。</p><div className="modal-actions"><button className="secondary" onClick={() => setRollbackTarget(null)}>取消</button><button disabled={busy === "rollback"} onClick={() => void rollback()}>{busy === "rollback" ? "建立中…" : "建立復原草稿"}</button></div></div></div>}
@@ -195,7 +202,8 @@ export function ConfigEditor({ report }: { report: (message: string, tone?: "inf
 export function localIssues(config: SessionConfig): string[] {
   const issues: string[] = [];
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(config.sessionId)) issues.push("Session ID 格式不正確");
-  if (config.flow.length === 0) issues.push("課程流程至少需要一個 section");
+  const routeIssue = flowIssue(config.flow);
+  if (routeIssue) issues.push(routeIssue.message);
   const puzzleNumbers = config.content.learnWord.words.map((word) => word.puzzleNumber);
   if (puzzleNumbers.length !== 9 || new Set(puzzleNumbers).size !== 9 || puzzleNumbers.some((value) => value < 1 || value > 9)) issues.push("Learn word 必須包含拼圖編號 1–9，且每個編號恰好一次");
   if (config.content.learnText.textIds.length === 0) issues.push("Learn text 至少選擇一段文本");

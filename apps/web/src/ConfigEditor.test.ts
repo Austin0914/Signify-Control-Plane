@@ -7,7 +7,7 @@ function repeatedLearnWordConfig(): SessionConfig {
     sessionId: "repeated-learn-word",
     configRevision: 1,
     contentCatalogVersion: "signify-core-1",
-    flow: ["learn-word"],
+    flow: ["landing", "learn-word", "ending"],
     content: {
       learnOpening: { wordId: "good-morning" },
       learnWord: {
@@ -23,6 +23,11 @@ function repeatedLearnWordConfig(): SessionConfig {
 }
 
 describe("ConfigEditor local validation", () => {
+  it("blocks the published route that Unity rejected", () => {
+    const config = repeatedLearnWordConfig();
+    config.flow = ["landing", "learn-word", "gaming", "opening", "learn-opening", "ending"];
+    expect(localIssues(config)).toEqual(["第 4 個「課程開場」順序不正確，請移到「單字學習」之前。"]);
+  });
   it("allows repeated LearnWord word IDs", () => {
     expect(localIssues(repeatedLearnWordConfig())).toEqual([]);
   });
