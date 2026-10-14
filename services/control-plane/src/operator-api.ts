@@ -199,6 +199,15 @@ async function createCommand(input: unknown, idempotencyKey: string | undefined,
   const issuedAt = nowIso();
   const expiresAt = new Date(Date.parse(issuedAt) + MAX_COMMAND_TTL_SECONDS * 1000).toISOString();
   let authoritativePayload = request.payload;
+  if (request.commandType === "start_gaming") {
+    const snapshot = live.Item.snapshot;
+    if (!snapshot?.capabilities?.includes("start_gaming")) return json(409, { code: "device_update_required" });
+    if (snapshot.currentSection?.sectionId !== "gaming" || snapshot.transition?.state !== "active" ||
+        snapshot.gaming?.phase !== "rules_gate" || !snapshot.gaming.canStart) return json(409, { code: "gaming_not_waiting" });
+    if ((request.payload as { sectionInstanceId?: unknown } | undefined)?.sectionInstanceId !== snapshot.currentSection.sectionInstanceId)
+      return json(409, { code: "stale_gaming_section" });
+    authoritativePayload = { sectionInstanceId: snapshot.currentSection.sectionInstanceId };
+  }
   if (request.commandType === "force_judgment") {
     const active = live.Item.snapshot?.activeJudgment;
     const outcome = (request.payload as { outcome?: unknown } | undefined)?.outcome;

@@ -1,0 +1,225 @@
+--- a/Assets/Scripts/Gaming/GamingStartGateController.cs
++++ b/Assets/Scripts/Gaming/GamingStartGateController.cs
+@@ -36,6 +36,17 @@
+ 
+     public event Action StartSequenceCompleted;
+ 
++    public bool CanConfirmStart => _config != null && !_startSequenceCompleted && _startSequenceRoutine == null &&
++        (_startConfirmTrigger != null || _spawnedStartConfirmTrigger != null) &&
++        !(_startConfirmTrigger != null ? _startConfirmTrigger : _spawnedStartConfirmTrigger).IsConfirmed;
++
++    public bool TryConfirmStart()
++    {
++        if (!CanConfirmStart) return false;
++        GamingStartConfirmTrigger trigger = _startConfirmTrigger != null ? _startConfirmTrigger : _spawnedStartConfirmTrigger;
++        return trigger.Confirm();
++    }
++
+     void Awake()
+     {
+         ResolveAlarmRevealCompletionSource();
+--- a/Assets/Scripts/Gaming/GamingSceneController.cs
++++ b/Assets/Scripts/Gaming/GamingSceneController.cs
+@@ -48,6 +48,10 @@
+ 
+     public bool IsGameplayActive => _gameplayService != null && _gameplayService.IsRunning;
+ 
++    public bool CanStartRemotely => Phase == GamingScenePhase.RulesGate && _startGateController != null && _startGateController.CanConfirmStart;
++
++    public bool TryStartRemotely() => CanStartRemotely && _startGateController.TryConfirmStart();
++
+     public event System.Action<GamingGameplaySnapshot> GameplayStateChanged;
+ 
+     public event System.Action<GamingGameplaySnapshot, GamingGameplayEndReason> GameplayEnded;
+--- a/Assets/Scripts/General/SceneFlow/SceneFlowController.cs
++++ b/Assets/Scripts/General/SceneFlow/SceneFlowController.cs
+@@ -53,6 +53,31 @@
+         phaseEpoch = 0;
+         isTransitioning = false;
+         return false;
++    }
++
++    public bool TryGetActiveGamingState(out GamingScenePhase phase, out bool canStart)
++    {
++        if (_service.State == SceneFlowTransitionState.Active && CurrentExecution?.StepId == SceneFlowStepId.Gaming &&
++            _activeLifecycleParticipant is GamingSceneController gaming)
++        {
++            phase = gaming.Phase;
++            canStart = gaming.CanStartRemotely;
++            return true;
++        }
++        phase = GamingScenePhase.None;
++        canStart = false;
++        return false;
++    }
++
++    public bool TryStartGaming(string expectedInstanceId, out string code)
++    {
++        if (!string.Equals(CurrentExecution?.InstanceId, expectedInstanceId, System.StringComparison.Ordinal))
++        { code = "stale_gaming_section"; return false; }
++        if (_service.State != SceneFlowTransitionState.Active || CurrentExecution?.StepId != SceneFlowStepId.Gaming ||
++            _activeLifecycleParticipant is not GamingSceneController gaming || !gaming.TryStartRemotely())
++        { code = "gaming_not_waiting"; return false; }
++        code = string.Empty;
++        return true;
+     }
+ 
+     void Awake()
+--- a/Assets/Scripts/General/CloudSessionControl/Remote/RemoteSessionProtocol.cs
++++ b/Assets/Scripts/General/CloudSessionControl/Remote/RemoteSessionProtocol.cs
+@@ -14,6 +14,7 @@
+     AdvanceSubsection = 2,
+     ForceJudgment = 3,
+     RequestSnapshot = 4,
++    StartGaming = 5,
+ }
+ 
+ public sealed class RemoteCommandEnvelope
+@@ -183,6 +184,7 @@
+         RemoteCommandType.AdvanceSubsection => "advance_subsection",
+         RemoteCommandType.ForceJudgment => "force_judgment",
+         RemoteCommandType.RequestSnapshot => "request_snapshot",
++        RemoteCommandType.StartGaming => "start_gaming",
+         _ => "unknown",
+     };
+ 
+@@ -232,6 +234,15 @@
+                 if (outcome != "correct" && outcome != "wrong")
+                 {
+                     error = "outcome must be 'correct' or 'wrong'.";
++                    return false;
++                }
++                return true;
++
++            case RemoteCommandType.StartGaming:
++                if (!HasOnlyFields(payload, new HashSet<string>(StringComparer.Ordinal) { "sectionInstanceId" }, out string startUnknown) ||
++                    !TryReadIdentity(payload, "sectionInstanceId", out _, out error))
++                {
++                    if (string.IsNullOrEmpty(error)) error = $"Unknown start_gaming field '{startUnknown}'.";
+                     return false;
+                 }
+                 return true;
+@@ -258,6 +269,7 @@
+             "advance_subsection" => RemoteCommandType.AdvanceSubsection,
+             "force_judgment" => RemoteCommandType.ForceJudgment,
+             "request_snapshot" => RemoteCommandType.RequestSnapshot,
++            "start_gaming" => RemoteCommandType.StartGaming,
+             _ => RemoteCommandType.Unknown,
+         };
+         return type != RemoteCommandType.Unknown;
+--- a/Assets/Scripts/General/CloudSessionControl/Remote/RemoteSessionCommandProcessor.cs
++++ b/Assets/Scripts/General/CloudSessionControl/Remote/RemoteSessionCommandProcessor.cs
+@@ -90,6 +90,7 @@
+             case RemoteCommandType.NavigateSection: HandleNavigate(entry); break;
+             case RemoteCommandType.AdvanceSubsection: HandleAdvance(entry); break;
+             case RemoteCommandType.ForceJudgment: HandleForceJudgment(entry); break;
++            case RemoteCommandType.StartGaming: HandleStartGaming(entry); break;
+             case RemoteCommandType.RequestSnapshot:
+                 Accept(entry, "accepted", "snapshot_requested", string.Empty, string.Empty, true);
+                 QueueSnapshot();
+@@ -144,6 +145,16 @@
+             _sceneFlow.CurrentExecution?.Generation ?? 0, string.Empty, ++_stateRevision, ++_eventSequence));
+     }
+ 
++    void HandleStartGaming(RemoteCommandLedgerEntry entry)
++    {
++        if (_sceneFlow == null) { Reject(entry, "internal_error", "SceneFlowController is unavailable."); return; }
++        string expected = entry.Command.Payload.Value<string>("sectionInstanceId");
++        if (!_sceneFlow.TryStartGaming(expected, out string code))
++        { Reject(entry, code, "Gaming is not waiting to start in the expected execution."); return; }
++        entry.TargetInstanceId = expected;
++        Accept(entry, "accepted", "gaming_start_requested", string.Empty, expected, false);
++    }
++
+     void HandleForceJudgment(RemoteCommandLedgerEntry entry)
+     {
+         if (!RemoteSessionProtocol.TryGetJudgmentTarget(entry.Command, out string sectionInstanceId, out string attemptId, out GestureJudgmentOutcome outcome))
+@@ -162,6 +173,19 @@
+         List<RemoteCommandLedgerEntry> pending = new(_ledger.NonTerminalEntries());
+         foreach (RemoteCommandLedgerEntry entry in pending)
+         {
++            if (entry.Command.CommandType == RemoteCommandType.StartGaming)
++            {
++                SectionExecutionInstance active = _sceneFlow.CurrentExecution;
++                if (_sceneFlow.State == SceneFlowTransitionState.Fatal)
++                    CompleteNavigation(entry, "failed", FindRecord(entry.TargetInstanceId)?.Instance, "scene_flow_fatal");
++                else if (_sceneFlow.State != SceneFlowTransitionState.Active || active?.InstanceId != entry.TargetInstanceId)
++                    CompleteNavigation(entry, "superseded", FindRecord(entry.TargetInstanceId)?.Instance, "gaming_section_left");
++                else if (_sceneFlow.TryGetActiveGamingState(out GamingScenePhase phase, out _) && phase == GamingScenePhase.Gameplay)
++                    CompleteNavigation(entry, "activated", active, string.Empty);
++                else if (phase == GamingScenePhase.None || phase == GamingScenePhase.Completed || phase == GamingScenePhase.Result || phase == GamingScenePhase.OutcomePresentation)
++                    CompleteNavigation(entry, "failed", active, "gaming_start_failed");
++                continue;
++            }
+             if (entry.Command.CommandType != RemoteCommandType.NavigateSection) continue;
+             SectionExecutionRecord record = FindRecord(entry.TargetInstanceId);
+             if (string.IsNullOrEmpty(entry.TransitionId) &&
+@@ -237,11 +261,14 @@
+         long epoch = 0;
+         bool phaseBusy = false;
+         _sceneFlow?.TryGetActiveLearnWordState(out phase, out epoch, out phaseBusy);
++        GamingScenePhase gamingPhase = GamingScenePhase.None;
++        bool canStartGaming = false;
++        if (_sceneFlow != null) _sceneFlow.TryGetActiveGamingState(out gamingPhase, out canStartGaming);
+         GestureJudgmentApi.TryGetActiveAttempt(out GestureJudgmentAttemptSnapshot attempt);
+         return string.Join("|", _sceneFlow?.State.ToString() ?? "none", _sceneFlow?.BootPlanState.ToString() ?? "none",
+             _sceneFlow?.CurrentExecution?.InstanceId ?? string.Empty, _sceneFlow?.TransitionTarget?.InstanceId ?? string.Empty,
+             _sceneFlow?.PendingLandingTarget?.InstanceId ?? string.Empty, _sceneFlow?.ActiveTransitionId ?? string.Empty,
+-            _sceneFlow?.FatalDetail ?? string.Empty, phase.ToString(), epoch.ToString(), phaseBusy.ToString(), attempt?.AttemptId ?? string.Empty);
++            _sceneFlow?.FatalDetail ?? string.Empty, phase.ToString(), epoch.ToString(), phaseBusy.ToString(), gamingPhase.ToString(), canStartGaming.ToString(), attempt?.AttemptId ?? string.Empty);
+     }
+ 
+     void QueueSnapshot()
+--- a/Assets/Scripts/General/CloudSessionControl/Remote/RemoteSessionMessageWriter.cs
++++ b/Assets/Scripts/General/CloudSessionControl/Remote/RemoteSessionMessageWriter.cs
+@@ -100,7 +100,7 @@
+         JObject message = Base("client_hello", sessionId, deviceId, connectionId);
+         message["configRevision"] = configRevision;
+         message["deviceStateRevision"] = stateRevision;
+-        message["capabilities"] = new JArray("navigate_section", "advance_subsection", "force_judgment", "request_snapshot");
++        message["capabilities"] = new JArray("navigate_section", "advance_subsection", "force_judgment", "request_snapshot", "start_gaming");
+         return Serialize(message);
+     }
+ 
+@@ -146,7 +146,7 @@
+         message["deviceEventSequence"] = eventSequence;
+         message["connectionState"] = "connected";
+         message["lastProcessedServerSequence"] = lastProcessedServerSequence;
+-        message["capabilities"] = new JArray("navigate_section", "advance_subsection", "force_judgment", "request_snapshot");
++        message["capabilities"] = new JArray("navigate_section", "advance_subsection", "force_judgment", "request_snapshot", "start_gaming");
+ 
+         if (controller == null)
+         {
+@@ -155,6 +155,7 @@
+             message["currentSection"] = JValue.CreateNull();
+             message["pendingLanding"] = JValue.CreateNull();
+             message["learnWord"] = JValue.CreateNull();
++            message["gaming"] = JValue.CreateNull();
+             message["fatal"] = JValue.CreateNull();
+         }
+         else
+@@ -180,6 +181,10 @@
+             }
+             else message["learnWord"] = JValue.CreateNull();
+ 
++            message["gaming"] = controller.TryGetActiveGamingState(out GamingScenePhase gamingPhase, out bool canStart)
++                ? new JObject { ["phase"] = ToSnakeCase(gamingPhase.ToString()), ["canStart"] = canStart }
++                : JValue.CreateNull();
++
+             message["fatal"] = controller.State == SceneFlowTransitionState.Fatal
+                 ? new JObject { ["code"] = "scene_flow_fatal", ["detail"] = Bound(controller.FatalDetail) }
+                 : JValue.CreateNull();
+--- a/Assets/Scripts/General/CloudSessionControl/Editor/CloudSessionControlPlan06Verifier.cs
++++ b/Assets/Scripts/General/CloudSessionControl/Editor/CloudSessionControlPlan06Verifier.cs
+@@ -13,6 +13,11 @@
+         int checks = 0;
+         RemoteProtocolParseResult navigate = Parse("cmd-1", 1, "navigate_section", "{\"sectionId\":\"learn-word\"}");
+         Require(navigate.Succeeded && navigate.Command.CommandType == RemoteCommandType.NavigateSection, $"valid navigation parses ({navigate.Code}: {navigate.Detail})"); checks++;
++
++        RemoteProtocolParseResult start = Parse("cmd-start", 1, "start_gaming", "{\"sectionInstanceId\":\"gaming@g3\"}");
++        Require(start.Succeeded && start.Command.CommandType == RemoteCommandType.StartGaming, "instance-scoped game start parses"); checks++;
++        Require(!Parse("cmd-start-missing", 1, "start_gaming", "{}").Succeeded, "game start requires execution identity"); checks++;
++        Require(!Parse("cmd-start-extra", 1, "start_gaming", "{\"sectionInstanceId\":\"gaming@g3\",\"skipIntro\":true}").Succeeded, "game start rejects flow bypass fields"); checks++;
+ 
+         RemoteProtocolParseResult unknownField = RemoteSessionProtocol.ParseCommand(Build("cmd-2", 2, "navigate_section", "{\"sectionId\":\"learn-word\",\"sceneName\":\"LearnWord\"}"));
+         Require(!unknownField.Succeeded && unknownField.Code == "invalid_payload", "forbidden/unknown payload field rejected"); checks++;

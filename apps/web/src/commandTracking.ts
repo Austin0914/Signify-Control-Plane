@@ -1,4 +1,4 @@
-export type TrackedCommand = { commandId: string; status: string; commandType?: string; createdAt?: string; deviceId?: string; judgmentKey?: string };
+export type TrackedCommand = { commandId: string; status: string; commandType?: string; createdAt?: string; deviceId?: string; judgmentKey?: string; sectionInstanceId?: string };
 export type JudgmentCommands = Record<string, TrackedCommand>;
 
 const terminalStatuses = new Set(["activated", "superseded", "failed", "rejected", "expired", "judged_correct", "judged_wrong"]);

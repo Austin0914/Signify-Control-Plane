@@ -89,6 +89,7 @@ export const clientHelloSchema = z.object({
     "advance_subsection",
     "force_judgment",
     "request_snapshot",
+    "start_gaming",
   ])).max(16),
 }).strict();
 
@@ -184,6 +185,7 @@ export const deviceSnapshotSchema = z.object({
     phaseEpoch: positiveInteger,
     phaseTransitioning: z.boolean(),
   }).strict().nullable(),
+  gaming: z.object({ phase: z.string().min(1).max(64), canStart: z.boolean() }).strict().nullable().optional(),
   fatal: z.object({ code: z.string().min(1).max(128), detail: z.string().max(256) }).strict().nullable(),
   lastProcessedServerSequence: z.number().int().nonnegative(),
   capabilities: z.array(z.string().min(1).max(64)).max(16),
@@ -223,6 +225,7 @@ export const serverCommandSchema = z.discriminatedUnion("commandType", [
   z.object({ ...commandBaseShape, commandType: z.literal("advance_subsection"), payload: z.object({ expectedPhase: learnWordPhaseSchema, expectedPhaseEpoch: positiveInteger }).strict() }).strict(),
   z.object({ ...commandBaseShape, commandType: z.literal("force_judgment"), payload: z.object({ sectionInstanceId: identitySchema, attemptId: identitySchema, outcome: z.enum(["correct", "wrong"]) }).strict() }).strict(),
   z.object({ ...commandBaseShape, commandType: z.literal("request_snapshot"), payload: z.object({}).strict() }).strict(),
+  z.object({ ...commandBaseShape, commandType: z.literal("start_gaming"), payload: z.object({ sectionInstanceId: identitySchema }).strict() }).strict(),
 ]).refine((command) => {
   const ttl = Date.parse(command.expiresAt) - Date.parse(command.issuedAt);
   return ttl > 0 && ttl <= MAX_COMMAND_TTL_SECONDS * 1000;

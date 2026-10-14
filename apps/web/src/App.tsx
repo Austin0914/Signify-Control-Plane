@@ -12,6 +12,8 @@ type Device = {
     currentSection: { sectionId: string; sectionInstanceId?: string; generation?: number } | null;
     transition: { state: string; target: { sectionId: string } | null } | null;
     learnWord: { phase: string; phaseEpoch: number; phaseTransitioning: boolean } | null;
+    gaming?: { phase: string; canStart: boolean } | null;
+    capabilities?: string[];
     activeJudgment: { sectionInstanceId: string; attemptId: string; status: "active" } | null;
   };
 };
@@ -74,6 +76,12 @@ export function App({ email, signOut }: { email: string; signOut: (() => void) |
   const judgmentSubmitted = Boolean(judgmentKey && submittedJudgments[judgmentKey]);
   const canJudge = Boolean(device?.ready && judgmentKey && !commandBusy && !judgmentSubmitted);
   const currentCommand = trackedCommand?.deviceId === selected ? trackedCommand : null;
+  const gamingInstance = device?.snapshot?.currentSection?.sectionInstanceId;
+  const gamingSupported = Boolean(device?.snapshot?.capabilities?.includes("start_gaming"));
+  const gamingStarting = currentCommand?.commandType === "start_gaming" && currentCommand.sectionInstanceId === gamingInstance &&
+    !["failed", "rejected", "expired", "superseded"].includes(currentCommand.status);
+  const canStartGaming = Boolean(device?.ready && actual === "gaming" && device.snapshot?.transition?.state === "active" &&
+    device.snapshot.gaming?.phase === "rules_gate" && device.snapshot.gaming.canStart && gamingInstance && gamingSupported && !commandBusy && !gamingStarting);
   const configuredFlow = device?.snapshot?.configSource === "remote" ? publishedFlows.find((item) => item.revision === device.snapshot!.configRevision)?.config.flow : undefined;
   const flow = configuredFlow ?? courseStages.map((stage) => stage.id);
   const bootIndex = Number(device?.snapshot?.currentSection?.sectionInstanceId?.match(/#\d+@(\d+)$/)?.[1] ?? -1);
@@ -94,13 +102,14 @@ export function App({ email, signOut }: { email: string; signOut: (() => void) |
     if (sending.current) return;
     if (!device?.ready || !device.snapshot) return notify("裝置尚未連線完成，請稍候再操作。", "error");
     if (commandType === "force_judgment" && (!judgmentKey || judgmentSubmitted)) return;
+    if (commandType === "start_gaming" && !canStartGaming) return;
     sending.current = true; setCommandBusy(true);
     try {
       const result = await api<TrackedCommand>("/api/v1/projects/default/commands", {
         method: "POST", headers: { "idempotency-key": idempotencyKey() },
         body: JSON.stringify({ deviceId: device.deviceId, sessionId: device.snapshot.sessionId, configRevision: device.snapshot.configRevision, expectedDeviceStateRevision: device.snapshot.deviceStateRevision, commandType, payload }),
       });
-      setTrackedCommand({ ...result, status: result.status ?? "queued", commandType, deviceId: device.deviceId, ...(commandType === "force_judgment" && judgmentKey ? { judgmentKey } : {}) });
+      setTrackedCommand({ ...result, status: result.status ?? "queued", commandType, deviceId: device.deviceId, ...(commandType === "force_judgment" && judgmentKey ? { judgmentKey } : {}), ...(commandType === "start_gaming" && gamingInstance ? { sectionInstanceId: gamingInstance } : {}) });
       if (commandType === "force_judgment" && judgmentKey) setSubmittedJudgments((current) => ({ ...current, [judgmentKey]: { ...result, status: result.status ?? "queued", commandType, deviceId: device.deviceId, judgmentKey } }));
       if (commandType !== "force_judgment") notify("操作已送出，等待裝置完成。", "success");
     } catch (error) { notify(friendlyError(error), "error"); void refresh(true); }
@@ -174,7 +183,7 @@ export function App({ email, signOut }: { email: string; signOut: (() => void) |
 
       {view === "operations" && <div className="operations-workspace">
         {!device ? <section className="surface empty-device"><span>⌁</span><h2>先選擇一台裝置</h2><p>展開上方的裝置連線區塊，選擇或配對裝置。</p><button onClick={() => setConnectionOpen(true)}>展開裝置連線</button></section> : <>
-          <section className="surface current-stage"><div><span className="card-kicker"><span className="truth-mark">●</span>{device.ready ? "目前課程階段" : "最後回報的課程階段"}</span><strong className="section-name">{sectionLabel(actual)}</strong><p>{device.ready ? "依裝置回報更新" : "裝置未連線，這個階段可能已改變"} · {relativeTime(device.lastSeenAt)}</p></div>{device.snapshot?.learnWord && actual === "learn-word" && <div className="learning-progress"><span>單字學習進度</span><strong>{phaseLabel(device.snapshot.learnWord.phase)}</strong><button disabled={!device.ready || commandBusy || device.snapshot.learnWord.phaseTransitioning || ["exit", "completed"].includes(device.snapshot.learnWord.phase)} onClick={() => void send("advance_subsection", { expectedPhase: device.snapshot!.learnWord!.phase, expectedPhaseEpoch: device.snapshot!.learnWord!.phaseEpoch })}>前進到下一步 →</button></div>}</section>
+          <section className="surface current-stage"><div><span className="card-kicker"><span className="truth-mark">●</span>{device.ready ? "目前課程階段" : "最後回報的課程階段"}</span><strong className="section-name">{sectionLabel(actual)}</strong><p>{device.ready ? "依裝置回報更新" : "裝置未連線，這個階段可能已改變"} · {relativeTime(device.lastSeenAt)}</p></div>{device.snapshot?.learnWord && actual === "learn-word" && <div className="learning-progress"><span>單字學習進度</span><strong>{phaseLabel(device.snapshot.learnWord.phase)}</strong><button disabled={!device.ready || commandBusy || device.snapshot.learnWord.phaseTransitioning || ["exit", "completed"].includes(device.snapshot.learnWord.phase)} onClick={() => void send("advance_subsection", { expectedPhase: device.snapshot!.learnWord!.phase, expectedPhaseEpoch: device.snapshot!.learnWord!.phaseEpoch })}>前進到下一步 →</button></div>}{actual === "gaming" && <div className="learning-progress"><span>遊戲開始</span><strong>{!gamingSupported ? "裝置需要更新" : device.snapshot?.gaming?.phase === "gameplay" ? "遊戲進行中" : device.snapshot?.gaming?.canStart ? "等待開始" : ["rules_gate", "intro"].includes(device.snapshot?.gaming?.phase ?? "") ? "正在開始遊戲" : ["outcome_presentation", "result", "completed"].includes(device.snapshot?.gaming?.phase ?? "") ? "遊戲已結束" : "等待遊戲狀態"}</strong><button disabled={!canStartGaming} onClick={() => void send("start_gaming", { sectionInstanceId: gamingInstance })}>{gamingSupported && gamingStarting && currentCommand?.status !== "activated" && device.snapshot?.gaming?.phase !== "gameplay" ? "開始中…" : "開始遊戲"}</button><small>{gamingSupported ? "等同確認開始泡泡，接著播放原有開始流程。" : "請更新 Unity App 後使用此功能。"}</small></div>}</section>
           <section className="surface course-navigation"><div className="navigation-heading"><div><h2>選擇課程階段</h2><p>{configuredFlow ? "這台裝置載入的課程順序，由上往下排列。" : "標準階段導覽，由上往下排列；實際課程以裝置載入的設定為準。"}點選目的地，再送出切換。</p></div><div className="flow-legend"><span><i className="current-dot"/>目前階段</span><span><i className="target-dot"/>選擇目的地</span></div></div>
             <ol className="course-flow">{flow.map((id, index) => { const stage = courseStages.find((item) => item.id === id); return <li key={`${id}-${index}`} className={`${currentFlowIndex === index ? "current" : ""} ${desired === id ? "target" : ""}`}><span className="flow-node">{String(index + 1).padStart(2, "0")}</span><button disabled={!device.ready || commandBusy} aria-pressed={desired === id} onClick={() => setDesired(id)}><span className="stage-copy"><strong>{sectionLabel(id)}</strong><small>{stage?.name} · {stage?.description}</small></span><span className="stage-tags">{currentFlowIndex === index && <span className="stage-current">目前階段</span>}{desired === id && <span className="stage-target">已選擇</span>}</span></button></li>; })}</ol>
             {configuredFlow && courseStages.some((stage) => !flow.includes(stage.id)) && <div className="other-stages"><span>其他可前往的階段</span><div className="choice-row">{courseStages.filter((stage) => !flow.includes(stage.id)).map((stage) => <button key={stage.id} className={`choice ${desired === stage.id ? "selected" : ""}`} aria-pressed={desired === stage.id} disabled={!device.ready || commandBusy} onClick={() => setDesired(stage.id)}>{stage.label}{actual === stage.id ? "（目前）" : ""}</button>)}</div></div>}
@@ -228,7 +237,7 @@ function ConfirmModal({ icon, title, description, danger, confirmLabel, busy, on
 
 function friendlyError(error: unknown) {
   if (!(error instanceof ApiError)) return "發生未預期錯誤，請稍後再試。";
-  const messages: Record<string, string> = { device_not_ready: "裝置尚未連線完成，請稍候再操作。", stale_device_state: "裝置狀態已更新，請重新整理後再操作。", active_judgment_required: "目前沒有可判斷的手勢，請等待下一筆。", stable_learn_word_phase_required: "單字學習正在切換步驟，請稍後再試。", device_state_changed: "裝置狀態已改變，正在更新，請稍後再操作。", invalid_device_id: "裝置 ID 格式不正確。" };
+  const messages: Record<string, string> = { device_not_ready: "裝置尚未連線完成，請稍候再操作。", stale_device_state: "裝置狀態已更新，請重新整理後再操作。", active_judgment_required: "目前沒有可判斷的手勢，請等待下一筆。", stable_learn_word_phase_required: "單字學習正在切換步驟，請稍後再試。", device_state_changed: "裝置狀態已改變，正在更新，請稍後再操作。", invalid_device_id: "裝置 ID 格式不正確。", gaming_not_waiting: "遊戲目前不在等待開始狀態，請更新裝置狀態。", stale_gaming_section: "遊戲階段已改變，請重新整理後再開始。", device_update_required: "此裝置尚未支援遠端開始，請先更新 Unity App。" };
   return messages[error.code] ?? `操作失敗（${error.code}）`;
 }
 function commandLabel(status: string) { return ({ queued: "已排入佇列", sent: "已送往裝置", accepted: "裝置已接收，處理中", deferred: "等待目前階段完成", activated: "已啟用", superseded: "已被取代", failed: "執行失敗", rejected: "裝置未接受操作", expired: "指令已過期", judged_correct: "已判斷為正確", judged_wrong: "已判斷為錯誤" } as Record<string, string>)[status] ?? status; }

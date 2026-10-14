@@ -1,0 +1,160 @@
+[
+  {
+    "protocolVersion": 1,
+    "messageType": "client_hello",
+    "sessionId": "real-demo",
+    "deviceId": "vision-pro-smoke-01",
+    "connectionId": "local-game-start-test",
+    "configRevision": 8,
+    "deviceStateRevision": 3,
+    "capabilities": [
+      "navigate_section",
+      "advance_subsection",
+      "force_judgment",
+      "request_snapshot",
+      "start_gaming"
+    ]
+  },
+  {
+    "protocolVersion": 1,
+    "messageType": "device_snapshot",
+    "sessionId": "real-demo",
+    "deviceId": "vision-pro-smoke-01",
+    "connectionId": "local-game-start-test",
+    "configRevision": 8,
+    "configSource": "remote",
+    "deviceStateRevision": 12,
+    "deviceEventSequence": 1,
+    "connectionState": "connected",
+    "lastProcessedServerSequence": 2,
+    "capabilities": [
+      "navigate_section",
+      "advance_subsection",
+      "force_judgment",
+      "request_snapshot",
+      "start_gaming"
+    ],
+    "bootPlanState": "superseded_by_manual_navigation",
+    "transition": {
+      "state": "active",
+      "transitionId": null,
+      "target": null
+    },
+    "currentSection": {
+      "sectionId": "gaming",
+      "sectionInstanceId": "gaming@g3",
+      "generation": 3,
+      "origin": "dynamic"
+    },
+    "pendingLanding": null,
+    "learnWord": null,
+    "gaming": {
+      "phase": "rules_gate",
+      "canStart": true
+    },
+    "fatal": null,
+    "activeJudgment": null
+  },
+  {
+    "protocolVersion": 1,
+    "messageType": "device_snapshot",
+    "sessionId": "real-demo",
+    "deviceId": "vision-pro-smoke-01",
+    "connectionId": "local-game-start-test",
+    "configRevision": 8,
+    "configSource": "remote",
+    "deviceStateRevision": 15,
+    "deviceEventSequence": 2,
+    "connectionState": "connected",
+    "lastProcessedServerSequence": 6,
+    "capabilities": [
+      "navigate_section",
+      "advance_subsection",
+      "force_judgment",
+      "request_snapshot",
+      "start_gaming"
+    ],
+    "bootPlanState": "superseded_by_manual_navigation",
+    "transition": {
+      "state": "active",
+      "transitionId": null,
+      "target": null
+    },
+    "currentSection": {
+      "sectionId": "gaming",
+      "sectionInstanceId": "gaming@g3",
+      "generation": 3,
+      "origin": "dynamic"
+    },
+    "pendingLanding": null,
+    "learnWord": null,
+    "gaming": {
+      "phase": "gameplay",
+      "canStart": false
+    },
+    "fatal": null,
+    "activeJudgment": null
+  },
+  {
+    "protocolVersion": 1,
+    "messageType": "command_ack",
+    "sessionId": "real-demo",
+    "deviceId": "vision-pro-smoke-01",
+    "connectionId": "local-game-start-test",
+    "commandId": "start-game-once",
+    "serverSequence": 4,
+    "ingressDisposition": "accepted",
+    "authorityCode": "gaming_start_requested",
+    "transitionId": null,
+    "targetSectionInstanceId": "gaming@g3",
+    "deviceStateRevision": 13,
+    "replayed": false
+  },
+  {
+    "protocolVersion": 1,
+    "messageType": "command_ack",
+    "sessionId": "real-demo",
+    "deviceId": "vision-pro-smoke-01",
+    "connectionId": "local-game-start-test",
+    "commandId": "start-game-once",
+    "serverSequence": 5,
+    "ingressDisposition": "accepted",
+    "authorityCode": "gaming_start_requested",
+    "transitionId": null,
+    "targetSectionInstanceId": "gaming@g3",
+    "deviceStateRevision": 13,
+    "replayed": true
+  },
+  {
+    "protocolVersion": 1,
+    "messageType": "command_result",
+    "sessionId": "real-demo",
+    "deviceId": "vision-pro-smoke-01",
+    "connectionId": "local-game-start-test",
+    "commandId": "start-game-once",
+    "result": "activated",
+    "transitionId": null,
+    "sectionId": "gaming",
+    "sectionInstanceId": "gaming@g3",
+    "generation": 3,
+    "failureCode": null,
+    "deviceStateRevision": 15,
+    "deviceEventSequence": 2
+  },
+  {
+    "protocolVersion": 1,
+    "messageType": "command_result",
+    "sessionId": "real-demo",
+    "deviceId": "vision-pro-smoke-01",
+    "connectionId": "local-game-start-test",
+    "commandId": "start-game-leave-during-intro",
+    "result": "superseded",
+    "transitionId": null,
+    "sectionId": "gaming",
+    "sectionInstanceId": "gaming@g5",
+    "generation": 5,
+    "failureCode": "gaming_section_left",
+    "deviceStateRevision": 30,
+    "deviceEventSequence": 5
+  }
+]

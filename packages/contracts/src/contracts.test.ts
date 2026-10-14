@@ -47,6 +47,11 @@ describe("SessionConfig v1", () => {
 });
 
 describe("Unity protocol source reconciliation", () => {
+  it("accepts game start capability, state, replay and terminal messages captured from Unity", () => {
+    const messages = JSON.parse(readFileSync(new URL("../fixtures/unity-game-start-results.json", import.meta.url), "utf8")) as Array<Record<string, unknown>>;
+    expect(messages).toHaveLength(7);
+    for (const message of messages) expect(deviceInboundMessageSchema.safeParse(message).success).toBe(true);
+  });
   it("accepts ACK and terminal replay messages captured from the Unity writer and processor", () => {
     const messages = JSON.parse(readFileSync(new URL("../fixtures/unity-replay-results.json", import.meta.url), "utf8")) as Array<Record<string, unknown>>;
     expect(messages).toHaveLength(3);
@@ -114,6 +119,8 @@ describe("Unity protocol source reconciliation", () => {
       activeJudgment: null,
     };
     expect(deviceSnapshotSchema.safeParse(snapshot).success).toBe(true);
+    expect(deviceSnapshotSchema.safeParse({ ...snapshot, gaming: { phase: "rules_gate", canStart: true } }).success).toBe(true);
+    expect(deviceSnapshotSchema.safeParse({ ...snapshot, gaming: { phase: "rules_gate", canStart: "yes" } }).success).toBe(false);
     expect(deviceSnapshotSchema.safeParse({ ...snapshot, currentSection: { ...snapshot.currentSection!, status: "active" } }).success).toBe(false);
   });
 
@@ -127,6 +134,9 @@ describe("Unity protocol source reconciliation", () => {
     expect(serverCommandSchema.safeParse({ ...base, commandType: "navigate_section", payload: { sectionId: 5 } }).success).toBe(false);
     expect(serverCommandSchema.safeParse({ ...base, commandType: "advance_subsection", payload: { targetPhase: "celebration", expectedPhase: "word_learning", expectedPhaseEpoch: 2 } }).success).toBe(false);
     expect(serverCommandSchema.safeParse({ ...base, commandType: "force_judgment", payload: { sectionInstanceId: "s1", attemptId: "a1", outcome: "correct", worldPose: [0, 1, 2] } }).success).toBe(false);
+    expect(serverCommandSchema.safeParse({ ...base, commandType: "start_gaming", payload: { sectionInstanceId: "gaming@g3" } }).success).toBe(true);
+    expect(serverCommandSchema.safeParse({ ...base, commandType: "start_gaming", payload: {} }).success).toBe(false);
+    expect(serverCommandSchema.safeParse({ ...base, commandType: "start_gaming", payload: { sectionInstanceId: "gaming@g3", skipIntro: true } }).success).toBe(false);
   });
 
   it("keeps ingress ACK and terminal result as distinct wire messages", () => {

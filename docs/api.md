@@ -29,6 +29,14 @@ All bodies are JSON. Operator routes require a Cognito JWT. Device config retrie
 
 The server never accepts a scene name, Unity enum integer, world pose, Unity object reference, generation override, or arbitrary LearnWord target phase. Exact wire schemas live in `packages/contracts/src/index.ts`.
 
+## Start a waiting game
+
+Send `commandType: "start_gaming"` with `payload: { "sectionInstanceId": "gaming@g3" }` through the existing commands route. The device must advertise `start_gaming`, report an active Gaming execution and `gaming: { "phase": "rules_gate", "canStart": true }`. The backend binds the request to that execution and rejects stale targets, unsupported devices, transitions and already-started games. The new optional `gaming` snapshot field preserves compatibility with older clients.
+
+Unity confirms the existing start gate, preserving its configured intro. The ACK means the start was requested; `command_result: activated` is emitted only when Gameplay begins. Leaving the section while starting produces `superseded`. Duplicate command IDs replay their original outcome without restarting the countdown.
+
+Deploy the updated backend before running the new Unity client: its `client_hello` adds the new capability, which older backend schemas do not accept.
+
 ## Status semantics
 
 `queued → sent → accepted|deferred → activated|superseded|failed`
