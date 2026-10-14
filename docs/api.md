@@ -29,6 +29,8 @@ All bodies are JSON. Operator routes require a Cognito JWT. Device config retrie
 
 The server never accepts a scene name, Unity enum integer, world pose, Unity object reference, generation override, or arbitrary LearnWord target phase. Exact wire schemas live in `packages/contracts/src/index.ts`.
 
+Course configurations may include `content.gaming.autoStart: true` to confirm Gaming automatically on entry. The field is an optional strict boolean; omission or false preserves manual confirmation. It is saved and published with the course revision, rather than attached to navigation commands. Updated Unity clients are required for configurations containing this field.
+
 ## Start a waiting game
 
 Send `commandType: "start_gaming"` with `payload: { "sectionInstanceId": "gaming@g3" }` through the existing commands route. The device must advertise `start_gaming`, report an active Gaming execution and `gaming: { "phase": "rules_gate", "canStart": true }`. The backend binds the request to that execution and rejects stale targets, unsupported devices, transitions and already-started games. The new optional `gaming` snapshot field preserves compatibility with older clients.

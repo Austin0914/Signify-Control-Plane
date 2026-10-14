@@ -1,0 +1,159 @@
+--- a/Assets/Scripts/General/CloudSessionControl/Data/SessionConfigDto.cs
++++ b/Assets/Scripts/General/CloudSessionControl/Data/SessionConfigDto.cs
+@@ -74,4 +74,7 @@
+ {
+     [JsonProperty("wordIds", Required = Required.Always)]
+     public string[] WordIds { get; set; }
++
++    [JsonProperty("autoStart", DefaultValueHandling = DefaultValueHandling.Ignore)]
++    public bool AutoStart { get; set; }
+ }
+--- a/Assets/Scripts/General/CloudSessionControl/Data/SessionConfigSnapshot.cs
++++ b/Assets/Scripts/General/CloudSessionControl/Data/SessionConfigSnapshot.cs
+@@ -19,7 +19,8 @@
+         string learnOpeningWordId,
+         IEnumerable<SessionWordSlot> learnWordSlots,
+         IEnumerable<string> learnTextIds,
+-        IEnumerable<string> gamingWordIds)
++        IEnumerable<string> gamingWordIds,
++        bool gamingAutoStart = false)
+     {
+         SchemaVersion = schemaVersion;
+         SessionId = sessionId ?? string.Empty;
+@@ -30,6 +31,7 @@
+         LearnWordSlots = Copy(learnWordSlots);
+         LearnTextIds = Copy(learnTextIds);
+         GamingWordIds = Copy(gamingWordIds);
++        GamingAutoStart = gamingAutoStart;
+     }
+ 
+     public int SchemaVersion { get; }
+@@ -41,6 +43,7 @@
+     public IReadOnlyList<SessionWordSlot> LearnWordSlots { get; }
+     public IReadOnlyList<string> LearnTextIds { get; }
+     public IReadOnlyList<string> GamingWordIds { get; }
++    public bool GamingAutoStart { get; }
+ 
+     static IReadOnlyList<T> Copy<T>(IEnumerable<T> source)
+     {
+--- a/Assets/Scripts/General/CloudSessionControl/Validation/SessionConfigValidation.cs
++++ b/Assets/Scripts/General/CloudSessionControl/Validation/SessionConfigValidation.cs
+@@ -2,6 +2,7 @@
+ using System.Collections.Generic;
+ using System.Text.RegularExpressions;
+ using Newtonsoft.Json;
++using Newtonsoft.Json.Linq;
+ 
+ public static class SessionConfigDiagnosticCodes
+ {
+@@ -81,6 +82,12 @@
+ 
+         try
+         {
++            JObject root = JObject.Parse(json);
++            if (root["content"] is JObject content && content["gaming"] is JObject gaming &&
++                gaming.TryGetValue("autoStart", out JToken autoStart) && autoStart.Type != JTokenType.Boolean)
++                return SessionConfigValidationResult.Failure(SessionConfigDiagnosticCodes.InvalidGamingVocabulary,
++                    "Gaming autoStart must be a boolean when present.");
++
+             SessionConfigDto dto = JsonConvert.DeserializeObject<SessionConfigDto>(json, Settings);
+             if (dto == null)
+                 return SessionConfigValidationResult.Failure(SessionConfigDiagnosticCodes.InvalidJson, "JSON did not produce a config object.");
+@@ -166,7 +173,8 @@
+             dto.Content.LearnOpening.WordId,
+             slots,
+             dto.Content.LearnText.TextIds,
+-            dto.Content.Gaming.WordIds);
++            dto.Content.Gaming.WordIds,
++            dto.Content.Gaming.AutoStart);
+ 
+         return SessionConfigValidationResult.Success(snapshot);
+     }
+@@ -212,7 +220,7 @@
+                 LearnOpening = new LearnOpeningContentDto { WordId = snapshot.LearnOpeningWordId },
+                 LearnWord = new LearnWordContentDto { Words = slots },
+                 LearnText = new LearnTextContentDto { TextIds = Copy(snapshot.LearnTextIds) },
+-                Gaming = new GamingContentDto { WordIds = Copy(snapshot.GamingWordIds) },
++                Gaming = new GamingContentDto { WordIds = Copy(snapshot.GamingWordIds), AutoStart = snapshot.GamingAutoStart },
+             },
+         };
+     }
+--- a/Assets/Scripts/Gaming/GamingSceneController.cs
++++ b/Assets/Scripts/Gaming/GamingSceneController.cs
+@@ -98,7 +98,8 @@
+         Phase = GamingScenePhase.RulesGate;
+         _startGateController.StartSequenceCompleted += HandleStartSequenceCompleted;
+ 
+-        if (!_startGateController.BeginStartSequence(_config))
++        bool autoStart = SessionRuntimeConfigurationStore.Current?.Envelope.Snapshot.GamingAutoStart ?? false;
++        if (!_startGateController.BeginStartSequence(_config, autoStart))
+         {
+             Debug.LogError("[GamingSceneController] Failed to begin start sequence.", this);
+             return false;
+--- a/Assets/Scripts/Gaming/GamingStartGateController.cs
++++ b/Assets/Scripts/Gaming/GamingStartGateController.cs
+@@ -94,7 +94,7 @@
+             HideAlarmVisual();
+     }
+ 
+-    public bool BeginStartSequence(GamingSceneConfig config)
++    public bool BeginStartSequence(GamingSceneConfig config, bool autoConfirm = false)
+     {
+         if (_startSequenceRoutine != null)
+             return false;
+@@ -108,6 +108,13 @@
+         _config = config;
+         _startSequenceCompleted = false;
+         HideTimmyForGaming();
++
++        if (autoConfirm)
++        {
++            // Reuse the confirmed start sequence without presenting the rules or start bubble.
++            HandleStartConfirmTriggered();
++            return true;
++        }
+ 
+         if (ShouldSkipGateInEditor())
+         {
+--- a/Assets/Scripts/General/CloudSessionControl/Editor/CloudSessionControlPlan02Verifier.cs
++++ b/Assets/Scripts/General/CloudSessionControl/Editor/CloudSessionControlPlan02Verifier.cs
+@@ -26,6 +26,8 @@
+         Require(valid.Snapshot.Flow[0] == "landing", "Snapshot flow is not immutable.");
+         Require(valid.Snapshot.LearnWordSlots[0].WordId == "good-morning", "Snapshot content is not immutable.");
+         checks++;
++
++        checks += VerifyGamingAutoStart();
+ 
+         JObject unknownField = JObject.FromObject(CreateValidDto());
+         unknownField["unexpected"] = true;
+@@ -111,6 +113,30 @@
+             throw new InvalidOperationException(message);
+     }
+ 
++    public static int VerifyGamingAutoStart()
++    {
++        SessionConfigValidator validator = new(new SessionContentCatalog());
++        SessionConfigParser parser = new(validator);
++        int checks = 0;
++        JObject autoConfig = JObject.FromObject(CreateValidDto());
++        Require(parser.ParseAndValidate(autoConfig.ToString()).Snapshot.GamingAutoStart == false, "Missing autoStart must default to manual start."); checks++;
++        autoConfig["content"]["gaming"]["autoStart"] = true;
++        SessionConfigValidationResult automatic = parser.ParseAndValidate(autoConfig.ToString());
++        Require(automatic.IsValid && automatic.Snapshot.GamingAutoStart, "Auto-start must survive parsing into the immutable snapshot."); checks++;
++        SessionConfigDto autoDto = CreateValidDto();
++        autoDto.Content.Gaming.AutoStart = true;
++        Require(parser.ParseAndValidate(JsonConvert.SerializeObject(autoDto)).Snapshot.GamingAutoStart, "Auto-start must survive DTO JSON serialization."); checks++;
++        autoConfig["content"]["gaming"]["autoStart"] = false;
++        Require(!parser.ParseAndValidate(autoConfig.ToString()).Snapshot.GamingAutoStart, "Explicit false must preserve manual start."); checks++;
++        foreach (JToken invalidAutoStart in new JToken[] { new JValue("true"), new JValue(1), JValue.CreateNull() })
++        {
++            autoConfig["content"]["gaming"]["autoStart"] = invalidAutoStart;
++            Require(!parser.ParseAndValidate(autoConfig.ToString()).IsValid, "Auto-start must reject non-boolean JSON values."); checks++;
++        }
++
++        return checks;
++    }
++
+     static SessionConfigDto CreateValidDto()
+     {
+         string[] ids =

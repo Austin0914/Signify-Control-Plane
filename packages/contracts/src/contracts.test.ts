@@ -9,6 +9,21 @@ const words = [
 ] as const;
 
 describe("SessionConfig v1", () => {
+  it.each([undefined, false, true])("preserves optional game auto-start %s through JSON serialization", (autoStart) => {
+    const config = {
+      schemaVersion: 1, sessionId: "auto-game", configRevision: 1, contentCatalogVersion: "signify-core-1",
+      flow: ["landing", "gaming", "ending"], content: {
+        learnOpening: { wordId: "good-morning" },
+        learnWord: { words: words.map((wordId, index) => ({ puzzleNumber: index + 1, wordId })) },
+        learnText: { textIds: ["text-1"] }, gaming: { wordIds: ["good-morning"], ...(autoStart === undefined ? {} : { autoStart }) },
+      },
+    };
+    const result = sessionConfigSchema.parse(JSON.parse(JSON.stringify(config)));
+    expect(result.content.gaming.autoStart).toBe(autoStart);
+    for (const invalid of ["true", 1, null]) {
+      expect(sessionConfigSchema.safeParse({ ...config, content: { ...config.content, gaming: { ...config.content.gaming, autoStart: invalid } } }).success).toBe(false);
+    }
+  });
   it("accepts a complete config and rejects duplicate puzzle numbers", () => {
     const config = {
       schemaVersion: 1,

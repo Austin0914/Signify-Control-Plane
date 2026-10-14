@@ -61,7 +61,7 @@ export const sessionConfigSchema = z.object({
     }).strict(),
     learnText: z.object({ textIds: z.array(textIdSchema).min(1).max(4) }).strict()
       .superRefine((value, context) => uniqueArray(value.textIds, "textIds", context)),
-    gaming: z.object({ wordIds: z.array(wordIdSchema).min(1).max(9) }).strict()
+    gaming: z.object({ wordIds: z.array(wordIdSchema).min(1).max(9), autoStart: z.boolean().optional() }).strict()
       .superRefine((value, context) => uniqueArray(value.wordIds, "wordIds", context)),
   }).strict(),
 }).strict();

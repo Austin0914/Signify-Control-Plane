@@ -23,7 +23,7 @@ export type SessionConfig = {
     learnOpening: { wordId: WordId };
     learnWord: { words: Array<{ puzzleNumber: number; wordId: WordId }> };
     learnText: { textIds: TextId[] };
-    gaming: { wordIds: WordId[] };
+    gaming: { wordIds: WordId[]; autoStart?: boolean };
   };
 };
 type Revision = { revision: number; publishedAt?: string; publishedBy?: string; config: SessionConfig };
@@ -117,7 +117,11 @@ export function ConfigEditor({ report }: { report: (message: string, tone?: "inf
   }
   function setPuzzleWord(index: number, wordId: WordId) { patchContent("learnWord", { words: config.content.learnWord.words.map((word, candidate) => candidate === index ? { ...word, wordId } : word) }); }
   function toggleText(textId: TextId) { const current = config.content.learnText.textIds; patchContent("learnText", { textIds: current.includes(textId) ? current.filter((item) => item !== textId) : [...current, textId] }); }
-  function toggleGameWord(wordId: WordId) { const current = config.content.gaming.wordIds; patchContent("gaming", { wordIds: current.includes(wordId) ? current.filter((item) => item !== wordId) : [...current, wordId] }); }
+  function toggleGameWord(wordId: WordId) { const current = config.content.gaming.wordIds; patchContent("gaming", { ...config.content.gaming, wordIds: current.includes(wordId) ? current.filter((item) => item !== wordId) : [...current, wordId] }); }
+  function setGamingAutoStart(checked: boolean) {
+    const { autoStart: _autoStart, ...gaming } = config.content.gaming;
+    patchContent("gaming", checked ? { ...gaming, autoStart: true } : gaming);
+  }
 
   async function validate() {
     if (issues.length) return report(`請先修正 ${issues.length} 個欄位問題。`, "error");
@@ -176,6 +180,7 @@ export function ConfigEditor({ report }: { report: (message: string, tone?: "inf
           <span className="flow-index">{String(index + 1).padStart(2, "0")}</span>
           <div className="flow-step-body"><div className="flow-step-title"><strong>{labelFor(sectionOptions, section)}</strong><span>{courseStages.find((stage) => stage.id === section)?.description}</span></div>
             {routeIssue?.index === index && <p className="flow-step-error">{routeIssue.message}</p>}
+            {section === "gaming" && <label className="flow-start-option"><input type="checkbox" checked={config.content.gaming.autoStart === true} onChange={(event) => setGamingAutoStart(event.target.checked)}/><span>進入遊戲後自動開始<small>略過規則頁與開始確認；未勾選時仍可手動開始。</small></span></label>}
             <div className="flow-controls"><button className="secondary" aria-label={`將第 ${index + 1} 個「${labelFor(sectionOptions, section)}」上移`} disabled={index === 0} onClick={() => moveFlow(index, -1)}>↑ 上移</button><button className="secondary" aria-label={`將第 ${index + 1} 個「${labelFor(sectionOptions, section)}」下移`} disabled={index === config.flow.length - 1} onClick={() => moveFlow(index, 1)}>↓ 下移</button><button className="flow-remove" aria-label={`移除第 ${index + 1} 個「${labelFor(sectionOptions, section)}」`} onClick={() => removeFlow(index)}>× 移除</button></div>
           </div>
         </li>) : <li className="empty-inline">尚未加入課程階段，請從下方選擇。</li>}</ol>
@@ -187,7 +192,7 @@ export function ConfigEditor({ report }: { report: (message: string, tone?: "inf
         <details className="surface content-section"><summary><span><strong>開場詞彙</strong><small>目前使用：{labelFor(wordOptions, config.content.learnOpening.wordId)}</small></span><span className="content-expand" aria-hidden="true">＋</span></summary><div className="content-section-body"><label className="field"><span>示範與練習的詞彙</span><select value={config.content.learnOpening.wordId} onChange={(event) => patchContent("learnOpening", { wordId: event.target.value as WordId })}>{wordOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label></div></details>
         <details className="surface content-section" open><summary><span><strong>單字學習拼圖</strong><small>{config.content.learnWord.words.length} 個詞彙 · 依編號順序教學</small></span><span className="content-expand" aria-hidden="true">＋</span></summary><div className="content-section-body"><p>依序選擇九個詞彙，同一個詞彙可以重複使用。</p><div className="puzzle-grid">{config.content.learnWord.words.map((word, index) => <label className="puzzle-field" key={word.puzzleNumber}><span>第 {index + 1} 個詞彙 <small>拼圖 {word.puzzleNumber}</small></span><select value={word.wordId} onChange={(event) => setPuzzleWord(index, event.target.value as WordId)}>{wordOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>)}</div></div></details>
         <details className="surface content-section"><summary><span><strong>課文學習</strong><small>已選 {config.content.learnText.textIds.length} 段文本{config.content.learnText.textIds.length > 0 ? ` · ${config.content.learnText.textIds.map((id) => labelFor(textOptions, id)).join(" → ")}` : ""}</small></span><span className="content-expand" aria-hidden="true">＋</span></summary><div className="content-section-body"><p>依點選順序安排教學；再點一下即可移除。</p><div className="content-choices">{textOptions.map(([id, label]) => { const index = config.content.learnText.textIds.indexOf(id); return <button key={id} className={`choice ${index >= 0 ? "selected" : ""}`} aria-pressed={index >= 0} onClick={() => toggleText(id)}><span>{index >= 0 ? "✓" : "＋"} {label}</span><small>{index >= 0 ? `第 ${index + 1} 段教學` : "點選加入"}</small></button>; })}</div></div></details>
-        <details className="surface content-section"><summary><span><strong>遊戲練習題庫</strong><small>已選 {config.content.gaming.wordIds.length} 個詞彙</small></span><span className="content-expand" aria-hidden="true">＋</span></summary><div className="content-section-body"><div className="game-selection-toolbar"><p>勾選遊戲會出現的詞彙。</p><button className="secondary" onClick={() => patchContent("gaming", { wordIds: wordOptions.map(([id]) => id) })}>全部選取</button></div><div className="content-choices">{wordOptions.map(([id, label]) => <button key={id} className={`choice ${config.content.gaming.wordIds.includes(id) ? "selected" : ""}`} aria-pressed={config.content.gaming.wordIds.includes(id)} onClick={() => toggleGameWord(id)}><span>{config.content.gaming.wordIds.includes(id) ? "✓" : "＋"} {label}</span></button>)}</div></div></details>
+        <details className="surface content-section"><summary><span><strong>遊戲練習題庫</strong><small>已選 {config.content.gaming.wordIds.length} 個詞彙</small></span><span className="content-expand" aria-hidden="true">＋</span></summary><div className="content-section-body"><div className="game-selection-toolbar"><p>勾選遊戲會出現的詞彙。</p><button className="secondary" onClick={() => patchContent("gaming", { ...config.content.gaming, wordIds: wordOptions.map(([id]) => id) })}>全部選取</button></div><div className="content-choices">{wordOptions.map(([id, label]) => <button key={id} className={`choice ${config.content.gaming.wordIds.includes(id) ? "selected" : ""}`} aria-pressed={config.content.gaming.wordIds.includes(id)} onClick={() => toggleGameWord(id)}><span>{config.content.gaming.wordIds.includes(id) ? "✓" : "＋"} {label}</span></button>)}</div></div></details>
       </section>}
       {editorSection === "details" && <section id="config-details" className="surface form-section"><div className="section-heading"><div><h2>課程資訊</h2><p>為這次課程取一個容易辨識的名稱。</p></div></div><label className="field"><span>課程識別名稱</span><input value={config.sessionId} onChange={(event) => update({ ...config, sessionId: event.target.value })} placeholder="例如：class-a-morning"/><small>使用英數開頭，可搭配點、底線與連字號。</small></label></section>}
       </fieldset>
