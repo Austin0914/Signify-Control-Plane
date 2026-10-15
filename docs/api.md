@@ -44,3 +44,11 @@ Deploy the updated backend before running the new Unity client: its `client_hell
 `queued → sent → accepted|deferred → activated|superseded|failed`
 
 `rejected` and `expired` are terminal. Manual judgment terminates as `judged_correct` or `judged_wrong` after a matching attempt-scoped `judgment_result`. A duplicate or late ingress ACK cannot replace a terminal value.
+
+### 手動漂浮手
+
+Config v1 選填 `demoHandManualOnly: boolean`，缺少／false 保留自動提示；true 停用所有學習與遊戲階段因答錯觸發的漂浮手，需重新載入課程生效。
+
+支援 capability `show_demo_hand` 的 App 接受同名命令，payload 必須是 `{ sectionInstanceId, attemptId }`，指向目前辨識題目。API 比對 snapshot，Unity 再驗證目前 Session、場景世代、題目與播放狀態。換題回覆 `stale_attempt`，無目標或播放中回覆 `demo_hand_not_ready`。成功輸出 ACK 與 `command_result: activated`，表示播放已開始；不產生 `judgment_result`。相同 commandId 重送不重播示範。
+
+Snapshot 新增選填 `demoHand: { canShow: boolean, isPlaying: boolean, manualOnly: boolean }`。舊 App 缺少 capability 時，網頁顯示更新提示並停用按鈕。

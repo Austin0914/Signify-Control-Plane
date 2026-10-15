@@ -208,6 +208,17 @@ async function createCommand(input: unknown, idempotencyKey: string | undefined,
       return json(409, { code: "stale_gaming_section" });
     authoritativePayload = { sectionInstanceId: snapshot.currentSection.sectionInstanceId };
   }
+  if (request.commandType === "show_demo_hand") {
+    const snapshot = live.Item.snapshot;
+    if (!snapshot?.capabilities?.includes("show_demo_hand")) return json(409, { code: "device_update_required" });
+    const active = snapshot.activeJudgment;
+    if (snapshot.transition?.state !== "active" || !snapshot.demoHand?.canShow || !active)
+      return json(409, { code: "demo_hand_not_ready" });
+    const payload = request.payload as { sectionInstanceId?: unknown; attemptId?: unknown } | undefined;
+    if (payload?.sectionInstanceId !== active.sectionInstanceId || payload?.attemptId !== active.attemptId)
+      return json(409, { code: "stale_attempt" });
+    authoritativePayload = { sectionInstanceId: active.sectionInstanceId, attemptId: active.attemptId };
+  }
   if (request.commandType === "force_judgment") {
     const active = live.Item.snapshot?.activeJudgment;
     const outcome = (request.payload as { outcome?: unknown } | undefined)?.outcome;

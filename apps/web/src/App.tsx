@@ -13,6 +13,7 @@ type Device = {
     transition: { state: string; target: { sectionId: string } | null } | null;
     learnWord: { phase: string; phaseEpoch: number; phaseTransitioning: boolean } | null;
     gaming?: { phase: string; canStart: boolean } | null;
+    demoHand?: { canShow: boolean; isPlaying: boolean; manualOnly: boolean };
     capabilities?: string[];
     activeJudgment: { sectionInstanceId: string; attemptId: string; status: "active" } | null;
   };
@@ -82,6 +83,12 @@ export function App({ email, signOut }: { email: string; signOut: (() => void) |
     !["failed", "rejected", "expired", "superseded"].includes(currentCommand.status);
   const canStartGaming = Boolean(device?.ready && actual === "gaming" && device.snapshot?.transition?.state === "active" &&
     device.snapshot.gaming?.phase === "rules_gate" && device.snapshot.gaming.canStart && gamingInstance && gamingSupported && !commandBusy && !gamingStarting);
+  const handSupported = Boolean(device?.snapshot?.capabilities?.includes("show_demo_hand"));
+  const handPending = currentCommand?.commandType === "show_demo_hand" && currentCommand.judgmentKey === judgmentKey &&
+    !["activated", "failed", "rejected", "expired", "superseded"].includes(currentCommand.status);
+  const canShowDemoHand = Boolean(device?.ready && judgmentKey && !judgmentSubmitted && handSupported &&
+    device.snapshot?.demoHand?.canShow && !commandBusy && !handPending);
+  const demoHandControl = <div className="surface demo-hand-control"><div><strong>漂浮手示範</strong><p>{!handSupported ? "請更新 Unity App 以使用手動示範。" : device?.snapshot?.demoHand?.isPlaying ? "正在示範目前的動作" : device?.snapshot?.demoHand?.manualOnly ? "僅由後台手動觸發" : "目前保留答錯後自動示範"}</p></div><button disabled={!canShowDemoHand} onClick={() => void send("show_demo_hand", { sectionInstanceId: device!.snapshot!.activeJudgment!.sectionInstanceId, attemptId: device!.snapshot!.activeJudgment!.attemptId })}>{handPending ? "觸發中…" : "觸發漂浮手"}</button><small>等待動作辨識時可觸發；示範不會送出正確或錯誤判斷。</small></div>;
   const configuredFlow = device?.snapshot?.configSource === "remote" ? publishedFlows.find((item) => item.revision === device.snapshot!.configRevision)?.config.flow : undefined;
   const flow = configuredFlow ?? courseStages.map((stage) => stage.id);
   const bootIndex = Number(device?.snapshot?.currentSection?.sectionInstanceId?.match(/#\d+@(\d+)$/)?.[1] ?? -1);
@@ -103,13 +110,14 @@ export function App({ email, signOut }: { email: string; signOut: (() => void) |
     if (!device?.ready || !device.snapshot) return notify("裝置尚未連線完成，請稍候再操作。", "error");
     if (commandType === "force_judgment" && (!judgmentKey || judgmentSubmitted)) return;
     if (commandType === "start_gaming" && !canStartGaming) return;
+    if (commandType === "show_demo_hand" && !canShowDemoHand) return;
     sending.current = true; setCommandBusy(true);
     try {
       const result = await api<TrackedCommand>("/api/v1/projects/default/commands", {
         method: "POST", headers: { "idempotency-key": idempotencyKey() },
         body: JSON.stringify({ deviceId: device.deviceId, sessionId: device.snapshot.sessionId, configRevision: device.snapshot.configRevision, expectedDeviceStateRevision: device.snapshot.deviceStateRevision, commandType, payload }),
       });
-      setTrackedCommand({ ...result, status: result.status ?? "queued", commandType, deviceId: device.deviceId, ...(commandType === "force_judgment" && judgmentKey ? { judgmentKey } : {}), ...(commandType === "start_gaming" && gamingInstance ? { sectionInstanceId: gamingInstance } : {}) });
+      setTrackedCommand({ ...result, status: result.status ?? "queued", commandType, deviceId: device.deviceId, ...(["force_judgment", "show_demo_hand"].includes(commandType) && judgmentKey ? { judgmentKey } : {}), ...(commandType === "start_gaming" && gamingInstance ? { sectionInstanceId: gamingInstance } : {}) });
       if (commandType === "force_judgment" && judgmentKey) setSubmittedJudgments((current) => ({ ...current, [judgmentKey]: { ...result, status: result.status ?? "queued", commandType, deviceId: device.deviceId, judgmentKey } }));
       if (commandType !== "force_judgment") notify("操作已送出，等待裝置完成。", "success");
     } catch (error) { notify(friendlyError(error), "error"); void refresh(true); }
@@ -189,12 +197,14 @@ export function App({ email, signOut }: { email: string; signOut: (() => void) |
             {configuredFlow && courseStages.some((stage) => !flow.includes(stage.id)) && <div className="other-stages"><span>其他可前往的階段</span><div className="choice-row">{courseStages.filter((stage) => !flow.includes(stage.id)).map((stage) => <button key={stage.id} className={`choice ${desired === stage.id ? "selected" : ""}`} aria-pressed={desired === stage.id} disabled={!device.ready || commandBusy} onClick={() => setDesired(stage.id)}>{stage.label}{actual === stage.id ? "（目前）" : ""}</button>)}</div></div>}
             <div className="intent-footer"><p>{desired === actual && desired ? "將重新開始這個階段，並重設目前進度。" : desired ? <>從 <strong>{sectionLabel(actual)}</strong> 前往 <strong>{sectionLabel(desired)}</strong></> : "尚未選擇目的地"}</p><button disabled={!device.ready || commandBusy || !desired} onClick={() => void navigate()}>{desired === actual && desired ? "重新開始" : "前往"}{desired ? `「${sectionLabel(desired)}」` : "此階段"} →</button></div>
           </section>
+          {demoHandControl}
           {currentCommand && <section className={`command-tracker surface status-${currentCommand.status}`} aria-live="polite"><span>最近操作</span><strong>{commandLabel(currentCommand.status)}</strong></section>}
         </>}
       </div>}
 
       {view === "judgment" && <section className="judgment-workspace" aria-label="手勢人工判斷">
         <div className="judgment-status" role="status"><span className={`health-dot ${canJudge ? "online" : ""}`}/><div><strong>{!device ? "請先選擇裝置" : !device.ready ? "等待裝置連線" : commandBusy ? "正在送出判斷…" : judgmentSubmitted ? "已送出，等待下一筆手勢" : judgmentKey ? "這筆手勢可以判斷" : "等待下一筆手勢"}</strong><span>{device ? `${device.deviceId} · ${sectionLabel(actual)}` : "展開上方裝置連線，選擇要操作的裝置"}</span></div>{currentCommand?.commandType === "force_judgment" && <span className="judgment-result">{commandLabel(currentCommand.status)}</span>}</div>
+        {demoHandControl}
         <div className="large-judgment-actions"><button className="judgment-correct" disabled={!canJudge} onClick={() => void send("force_judgment", { outcome: "correct" })}><span aria-hidden="true">✓</span><strong>正確</strong></button><button className="judgment-wrong" disabled={!canJudge} onClick={() => void send("force_judgment", { outcome: "wrong" })}><span aria-hidden="true">×</span><strong>錯誤</strong></button></div>
       </section>}
 
@@ -237,7 +247,7 @@ function ConfirmModal({ icon, title, description, danger, confirmLabel, busy, on
 
 function friendlyError(error: unknown) {
   if (!(error instanceof ApiError)) return "發生未預期錯誤，請稍後再試。";
-  const messages: Record<string, string> = { device_not_ready: "裝置尚未連線完成，請稍候再操作。", stale_device_state: "裝置狀態已更新，請重新整理後再操作。", active_judgment_required: "目前沒有可判斷的手勢，請等待下一筆。", stable_learn_word_phase_required: "單字學習正在切換步驟，請稍後再試。", device_state_changed: "裝置狀態已改變，正在更新，請稍後再操作。", invalid_device_id: "裝置 ID 格式不正確。", gaming_not_waiting: "遊戲目前不在等待開始狀態，請更新裝置狀態。", stale_gaming_section: "遊戲階段已改變，請重新整理後再開始。", device_update_required: "此裝置尚未支援遠端開始，請先更新 Unity App。" };
+  const messages: Record<string, string> = { device_not_ready: "裝置尚未連線完成，請稍候再操作。", stale_device_state: "裝置狀態已更新，請重新整理後再操作。", active_judgment_required: "目前沒有可判斷的手勢，請等待下一筆。", stable_learn_word_phase_required: "單字學習正在切換步驟，請稍後再試。", device_state_changed: "裝置狀態已改變，正在更新，請稍後再操作。", invalid_device_id: "裝置 ID 格式不正確。", gaming_not_waiting: "遊戲目前不在等待開始狀態，請更新裝置狀態。", stale_gaming_section: "遊戲階段已改變，請重新整理後再開始。", demo_hand_not_ready: "目前沒有可示範的動作，或漂浮手正在播放，請稍候再試。", stale_attempt: "辨識題目已改變，請更新裝置狀態後再觸發。", device_update_required: "此裝置尚未支援這項操作，請先更新 Unity App。" };
   return messages[error.code] ?? `操作失敗（${error.code}）`;
 }
 function commandLabel(status: string) { return ({ queued: "已排入佇列", sent: "已送往裝置", accepted: "裝置已接收，處理中", deferred: "等待目前階段完成", activated: "已啟用", superseded: "已被取代", failed: "執行失敗", rejected: "裝置未接受操作", expired: "指令已過期", judged_correct: "已判斷為正確", judged_wrong: "已判斷為錯誤" } as Record<string, string>)[status] ?? status; }

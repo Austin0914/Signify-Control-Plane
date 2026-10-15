@@ -80,3 +80,45 @@ describe("remote gaming start", () => {
     expect(JSON.parse(response.body).code).toBe("stale_gaming_section");
   });
 });
+
+describe("manual demo hand command admission", () => {
+  function liveDevice() {
+    return { ready: true, lastSeenAt: new Date().toISOString(), gatewayConnectionId: "gateway", protocolConnectionId: "connection", snapshot: {
+      sessionId: "demo", configRevision: 8, deviceStateRevision: 12,
+      currentSection: { sectionId: "learn-word", sectionInstanceId: "word@g3" }, transition: { state: "active" },
+      demoHand: { canShow: true, isPlaying: false, manualOnly: true }, capabilities: ["show_demo_hand"],
+      activeJudgment: { sectionInstanceId: "word@g3", attemptId: "attempt-1", status: "active" },
+    } };
+  }
+  async function show(live: ReturnType<typeof liveDevice>, payload = { sectionInstanceId: "word@g3", attemptId: "attempt-1" }) {
+    mocks.send.mockImplementation(async (command) => command instanceof GetCommand
+      ? command.input.Key?.sortKey?.startsWith("DEVICE#") ? { Item: live } : {} : {});
+    return await handler({ rawPath: "/api/v1/projects/default/commands", headers: { "idempotency-key": "show-one" },
+      body: JSON.stringify({ deviceId: "demo-device", expectedDeviceStateRevision: 12, commandType: "show_demo_hand", payload }),
+      requestContext: { http: { method: "POST" }, authorizer: { jwt: { claims: { sub: "unit-operator" } } } },
+    } as never, {} as never, () => {}) as { statusCode: number; body: string };
+  }
+  it("queues the current attempt without changing its judgment", async () => {
+    expect((await show(liveDevice())).statusCode).toBe(202);
+    const transaction = mocks.send.mock.calls.map(([command]) => command).find((command) => command instanceof TransactWriteCommand);
+    const item = transaction?.input.TransactItems?.find((entry) => entry.Put?.Item?.entityType === "command")?.Put?.Item;
+    expect(item?.command).toMatchObject({ commandType: "show_demo_hand", payload: { sectionInstanceId: "word@g3", attemptId: "attempt-1" } });
+    expect(item?.command.payload).not.toHaveProperty("outcome");
+  });
+  it.each([
+    { label: "legacy app", mutate: (live: ReturnType<typeof liveDevice>) => { live.snapshot.capabilities = []; }, code: "device_update_required" },
+    { label: "busy playback", mutate: (live: ReturnType<typeof liveDevice>) => { live.snapshot.demoHand.canShow = false; }, code: "demo_hand_not_ready" },
+    { label: "section transition", mutate: (live: ReturnType<typeof liveDevice>) => { live.snapshot.transition.state = "quiescing"; }, code: "demo_hand_not_ready" },
+  ])("rejects $label without queuing", async ({ mutate, code }) => {
+    const live = liveDevice(); mutate(live);
+    const response = await show(live);
+    expect(response.statusCode).toBe(409);
+    expect(JSON.parse(response.body).code).toBe(code);
+    expect(mocks.send.mock.calls.some(([command]) => command instanceof TransactWriteCommand)).toBe(false);
+  });
+  it.each([{ sectionInstanceId: "word@g2", attemptId: "attempt-1" }, { sectionInstanceId: "word@g3", attemptId: "old-attempt" }])("does not retarget a stale click", async (payload) => {
+    const response = await show(liveDevice(), payload);
+    expect(response.statusCode).toBe(409);
+    expect(JSON.parse(response.body).code).toBe("stale_attempt");
+  });
+});

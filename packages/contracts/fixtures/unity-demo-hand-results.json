@@ -1,0 +1,265 @@
+[
+  {
+    "protocolVersion": 1,
+    "messageType": "client_hello",
+    "sessionId": "packaged-default",
+    "deviceId": "manual-test-device",
+    "connectionId": "manual-test-connection",
+    "configRevision": 0,
+    "deviceStateRevision": 0,
+    "capabilities": [
+      "navigate_section",
+      "advance_subsection",
+      "force_judgment",
+      "request_snapshot",
+      "start_gaming",
+      "show_demo_hand"
+    ]
+  },
+  {
+    "protocolVersion": 1,
+    "messageType": "device_snapshot",
+    "sessionId": "packaged-default",
+    "deviceId": "manual-test-device",
+    "connectionId": "manual-test-connection",
+    "configRevision": 0,
+    "configSource": "packageddefault",
+    "deviceStateRevision": 1,
+    "deviceEventSequence": 0,
+    "connectionState": "connected",
+    "lastProcessedServerSequence": 0,
+    "capabilities": [
+      "navigate_section",
+      "advance_subsection",
+      "force_judgment",
+      "request_snapshot",
+      "start_gaming",
+      "show_demo_hand"
+    ],
+    "bootPlanState": "superseded_by_manual_navigation",
+    "transition": {
+      "state": "active",
+      "transitionId": null,
+      "target": null
+    },
+    "currentSection": {
+      "sectionId": "learn-word",
+      "sectionInstanceId": "learn-word@g4",
+      "generation": 4,
+      "origin": "dynamic"
+    },
+    "pendingLanding": null,
+    "learnWord": {
+      "phase": "word_learning",
+      "phaseEpoch": 2,
+      "phaseTransitioning": false
+    },
+    "gaming": null,
+    "fatal": null,
+    "demoHand": {
+      "canShow": true,
+      "isPlaying": false,
+      "manualOnly": true
+    },
+    "activeJudgment": {
+      "sectionInstanceId": "learn-word@g4",
+      "attemptId": "attempt-cfc41e545d5d4974a31d72db2b4b6939",
+      "status": "active",
+      "startedAt": "2026-10-16T07:31:11.596826+08:00"
+    }
+  },
+  {
+    "protocolVersion": 1,
+    "messageType": "command_nack",
+    "sessionId": "packaged-default",
+    "deviceId": "manual-test-device",
+    "connectionId": "manual-test-connection",
+    "commandId": "hand-stale",
+    "serverSequence": 1,
+    "ingressDisposition": "rejected",
+    "reasonCode": "stale_attempt",
+    "detail": "Demo hand target is no longer available or playback is busy.",
+    "deviceStateRevision": 1,
+    "replayed": false
+  },
+  {
+    "protocolVersion": 1,
+    "messageType": "command_ack",
+    "sessionId": "packaged-default",
+    "deviceId": "manual-test-device",
+    "connectionId": "manual-test-connection",
+    "commandId": "hand-valid",
+    "serverSequence": 2,
+    "ingressDisposition": "accepted",
+    "authorityCode": "demo_hand_started",
+    "transitionId": null,
+    "targetSectionInstanceId": "learn-word@g4",
+    "deviceStateRevision": 1,
+    "replayed": false
+  },
+  {
+    "protocolVersion": 1,
+    "messageType": "command_result",
+    "sessionId": "packaged-default",
+    "deviceId": "manual-test-device",
+    "connectionId": "manual-test-connection",
+    "commandId": "hand-valid",
+    "result": "activated",
+    "transitionId": null,
+    "sectionId": "learn-word",
+    "sectionInstanceId": "learn-word@g4",
+    "generation": 4,
+    "failureCode": null,
+    "deviceStateRevision": 2,
+    "deviceEventSequence": 1
+  },
+  {
+    "protocolVersion": 1,
+    "messageType": "device_snapshot",
+    "sessionId": "packaged-default",
+    "deviceId": "manual-test-device",
+    "connectionId": "manual-test-connection",
+    "configRevision": 0,
+    "configSource": "packageddefault",
+    "deviceStateRevision": 2,
+    "deviceEventSequence": 1,
+    "connectionState": "connected",
+    "lastProcessedServerSequence": 2,
+    "capabilities": [
+      "navigate_section",
+      "advance_subsection",
+      "force_judgment",
+      "request_snapshot",
+      "start_gaming",
+      "show_demo_hand"
+    ],
+    "bootPlanState": "superseded_by_manual_navigation",
+    "transition": {
+      "state": "active",
+      "transitionId": null,
+      "target": null
+    },
+    "currentSection": {
+      "sectionId": "learn-word",
+      "sectionInstanceId": "learn-word@g4",
+      "generation": 4,
+      "origin": "dynamic"
+    },
+    "pendingLanding": null,
+    "learnWord": {
+      "phase": "word_learning",
+      "phaseEpoch": 2,
+      "phaseTransitioning": false
+    },
+    "gaming": null,
+    "fatal": null,
+    "demoHand": {
+      "canShow": false,
+      "isPlaying": true,
+      "manualOnly": true
+    },
+    "activeJudgment": {
+      "sectionInstanceId": "learn-word@g4",
+      "attemptId": "attempt-cfc41e545d5d4974a31d72db2b4b6939",
+      "status": "active",
+      "startedAt": "2026-10-16T07:31:11.596826+08:00"
+    }
+  },
+  {
+    "protocolVersion": 1,
+    "messageType": "command_ack",
+    "sessionId": "packaged-default",
+    "deviceId": "manual-test-device",
+    "connectionId": "manual-test-connection",
+    "commandId": "hand-valid",
+    "serverSequence": 3,
+    "ingressDisposition": "accepted",
+    "authorityCode": "demo_hand_started",
+    "transitionId": null,
+    "targetSectionInstanceId": "learn-word@g4",
+    "deviceStateRevision": 1,
+    "replayed": true
+  },
+  {
+    "protocolVersion": 1,
+    "messageType": "command_result",
+    "sessionId": "packaged-default",
+    "deviceId": "manual-test-device",
+    "connectionId": "manual-test-connection",
+    "commandId": "hand-valid",
+    "result": "activated",
+    "transitionId": null,
+    "sectionId": "learn-word",
+    "sectionInstanceId": "learn-word@g4",
+    "generation": 4,
+    "failureCode": null,
+    "deviceStateRevision": 2,
+    "deviceEventSequence": 1
+  },
+  {
+    "protocolVersion": 1,
+    "messageType": "device_snapshot",
+    "sessionId": "packaged-default",
+    "deviceId": "manual-test-device",
+    "connectionId": "manual-test-connection",
+    "configRevision": 0,
+    "configSource": "packageddefault",
+    "deviceStateRevision": 2,
+    "deviceEventSequence": 1,
+    "connectionState": "connected",
+    "lastProcessedServerSequence": 4,
+    "capabilities": [
+      "navigate_section",
+      "advance_subsection",
+      "force_judgment",
+      "request_snapshot",
+      "start_gaming",
+      "show_demo_hand"
+    ],
+    "bootPlanState": "superseded_by_manual_navigation",
+    "transition": {
+      "state": "active",
+      "transitionId": null,
+      "target": null
+    },
+    "currentSection": {
+      "sectionId": "learn-word",
+      "sectionInstanceId": "learn-word@g4",
+      "generation": 4,
+      "origin": "dynamic"
+    },
+    "pendingLanding": null,
+    "learnWord": {
+      "phase": "word_learning",
+      "phaseEpoch": 2,
+      "phaseTransitioning": false
+    },
+    "gaming": null,
+    "fatal": null,
+    "demoHand": {
+      "canShow": false,
+      "isPlaying": true,
+      "manualOnly": true
+    },
+    "activeJudgment": {
+      "sectionInstanceId": "learn-word@g4",
+      "attemptId": "attempt-cfc41e545d5d4974a31d72db2b4b6939",
+      "status": "active",
+      "startedAt": "2026-10-16T07:31:11.596826+08:00"
+    }
+  },
+  {
+    "protocolVersion": 1,
+    "messageType": "command_nack",
+    "sessionId": "packaged-default",
+    "deviceId": "manual-test-device",
+    "connectionId": "manual-test-connection",
+    "commandId": "hand-busy",
+    "serverSequence": 4,
+    "ingressDisposition": "rejected",
+    "reasonCode": "demo_hand_not_ready",
+    "detail": "Demo hand target is no longer available or playback is busy.",
+    "deviceStateRevision": 2,
+    "replayed": false
+  }
+]

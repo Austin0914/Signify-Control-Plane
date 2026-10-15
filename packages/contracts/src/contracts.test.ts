@@ -160,3 +160,37 @@ describe("Unity protocol source reconciliation", () => {
     expect(commandResultSchema.parse({ ...identity, messageType: "command_result", commandId: "cmd-3", result: "activated", transitionId: "t1", sectionId: "gaming", sectionInstanceId: "s1", generation: 2, failureCode: null, deviceStateRevision: 5, deviceEventSequence: 6 }).result).toBe("activated");
   });
 });
+
+describe("manual demo hand", () => {
+  const config = {
+    schemaVersion: 1, sessionId: "manual-hand", configRevision: 1, contentCatalogVersion: "signify-core-1",
+    flow: ["landing", "learn-word", "gaming", "ending"], content: {
+      learnOpening: { wordId: "good-morning" },
+      learnWord: { words: words.map((wordId, index) => ({ puzzleNumber: index + 1, wordId })) },
+      learnText: { textIds: ["text-1"] }, gaming: { wordIds: ["good-morning"], autoStart: true },
+    },
+  };
+  it.each([undefined, false, true])("preserves manual-only policy %s without changing game start", (manualOnly) => {
+    const result = sessionConfigSchema.parse(JSON.parse(JSON.stringify({ ...config, ...(manualOnly === undefined ? {} : { demoHandManualOnly: manualOnly }) })));
+    expect(result.demoHandManualOnly).toBe(manualOnly);
+    expect(result.content.gaming.autoStart).toBe(true);
+  });
+  it.each(["true", 1, null])("rejects a coerced manual-only policy %s", (value) => {
+    expect(sessionConfigSchema.safeParse({ ...config, demoHandManualOnly: value }).success).toBe(false);
+  });
+  it("requires an exact attempt and disallows outcome or sign overrides", () => {
+    const base = { protocolVersion: 1, messageType: "command", sessionId: "manual-hand", configRevision: 1,
+      deviceId: "device", connectionId: "connection", commandId: "hand-one", serverSequence: 1,
+      issuedAt: "2026-10-16T00:00:00Z", expiresAt: "2026-10-16T00:00:30Z", commandType: "show_demo_hand" };
+    const payload = { sectionInstanceId: "word@g1", attemptId: "attempt-1" };
+    expect(serverCommandSchema.safeParse({ ...base, payload }).success).toBe(true);
+    for (const invalid of [{ sectionInstanceId: "word@g1" }, { ...payload, attemptId: "" }, { ...payload, outcome: "correct" }, { ...payload, signId: "happy" }])
+      expect(serverCommandSchema.safeParse({ ...base, payload: invalid }).success).toBe(false);
+  });
+});
+
+it("accepts manual demo hand snapshots, rejection, activation and replay captured from Unity", () => {
+  const messages = JSON.parse(readFileSync(new URL("../fixtures/unity-demo-hand-results.json", import.meta.url), "utf8")) as Array<Record<string, unknown>>;
+  expect(messages.length).toBeGreaterThanOrEqual(8);
+  for (const message of messages) expect(deviceInboundMessageSchema.safeParse(message).success).toBe(true);
+});

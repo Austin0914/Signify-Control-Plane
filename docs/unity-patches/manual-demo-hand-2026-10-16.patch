@@ -1,0 +1,351 @@
+--- a/Assets/Scripts/General/CloudSessionControl/Data/SessionConfigDto.cs
++++ b/Assets/Scripts/General/CloudSessionControl/Data/SessionConfigDto.cs
+@@ -14,6 +14,9 @@
+ 
+     [JsonProperty("contentCatalogVersion", Required = Required.Always)]
+     public string ContentCatalogVersion { get; set; }
++
++    [JsonProperty("demoHandManualOnly", DefaultValueHandling = DefaultValueHandling.Ignore)]
++    public bool DemoHandManualOnly { get; set; }
+ 
+     [JsonProperty("flow", Required = Required.Always)]
+     public string[] Flow { get; set; }
+--- a/Assets/Scripts/General/CloudSessionControl/Data/SessionConfigSnapshot.cs
++++ b/Assets/Scripts/General/CloudSessionControl/Data/SessionConfigSnapshot.cs
+@@ -20,7 +20,8 @@
+         IEnumerable<SessionWordSlot> learnWordSlots,
+         IEnumerable<string> learnTextIds,
+         IEnumerable<string> gamingWordIds,
+-        bool gamingAutoStart = false)
++        bool gamingAutoStart = false,
++        bool demoHandManualOnly = false)
+     {
+         SchemaVersion = schemaVersion;
+         SessionId = sessionId ?? string.Empty;
+@@ -32,6 +33,7 @@
+         LearnTextIds = Copy(learnTextIds);
+         GamingWordIds = Copy(gamingWordIds);
+         GamingAutoStart = gamingAutoStart;
++        DemoHandManualOnly = demoHandManualOnly;
+     }
+ 
+     public int SchemaVersion { get; }
+@@ -44,6 +46,7 @@
+     public IReadOnlyList<string> LearnTextIds { get; }
+     public IReadOnlyList<string> GamingWordIds { get; }
+     public bool GamingAutoStart { get; }
++    public bool DemoHandManualOnly { get; }
+ 
+     static IReadOnlyList<T> Copy<T>(IEnumerable<T> source)
+     {
+--- a/Assets/Scripts/General/CloudSessionControl/Content/SessionContentPlan.cs
++++ b/Assets/Scripts/General/CloudSessionControl/Content/SessionContentPlan.cs
+@@ -101,6 +101,7 @@
+ 
+     public static SessionRuntimeConfiguration Current { get; private set; }
+     public static bool IsReady => Current != null;
++    public static bool DemoHandManualOnly => Current?.Envelope.Snapshot.DemoHandManualOnly ?? false;
+ 
+     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+     static void ResetAtSubsystemRegistration()
+--- a/Assets/Scripts/General/CloudSessionControl/Validation/SessionConfigValidation.cs
++++ b/Assets/Scripts/General/CloudSessionControl/Validation/SessionConfigValidation.cs
+@@ -83,6 +83,9 @@
+         try
+         {
+             JObject root = JObject.Parse(json);
++            if (root.TryGetValue("demoHandManualOnly", out JToken manualOnly) && manualOnly.Type != JTokenType.Boolean)
++                return SessionConfigValidationResult.Failure(SessionConfigDiagnosticCodes.InvalidJson,
++                    "demoHandManualOnly must be a boolean when present.");
+             if (root["content"] is JObject content && content["gaming"] is JObject gaming &&
+                 gaming.TryGetValue("autoStart", out JToken autoStart) && autoStart.Type != JTokenType.Boolean)
+                 return SessionConfigValidationResult.Failure(SessionConfigDiagnosticCodes.InvalidGamingVocabulary,
+@@ -174,7 +177,8 @@
+             slots,
+             dto.Content.LearnText.TextIds,
+             dto.Content.Gaming.WordIds,
+-            dto.Content.Gaming.AutoStart);
++            dto.Content.Gaming.AutoStart,
++            dto.DemoHandManualOnly);
+ 
+         return SessionConfigValidationResult.Success(snapshot);
+     }
+@@ -215,6 +219,7 @@
+             ConfigRevision = revision,
+             ContentCatalogVersion = snapshot.ContentCatalogVersion,
+             Flow = Copy(snapshot.Flow),
++            DemoHandManualOnly = snapshot.DemoHandManualOnly,
+             Content = new SessionContentDto
+             {
+                 LearnOpening = new LearnOpeningContentDto { WordId = snapshot.LearnOpeningWordId },
+--- a/Assets/Scripts/LearnＷord/LearnFlowController.cs
++++ b/Assets/Scripts/LearnＷord/LearnFlowController.cs
+@@ -1614,8 +1614,17 @@
+             Debug.LogWarning($"[LearnFlowController] Failed to apply Timmy playback speed {_selectedPlaybackSpeed:0.##}.", this);
+     }
+ 
+-    bool TryQueueDemoHandGuidance(LearnWordDefinition word, string context)
+-    {
++    public bool CanShowDemoHandRemotely => CurrentPhase == LearnFlowPhase.WordLearning &&
++        _activeWordMatchIndex >= 0 && _activeWordDefinition.SignId != SignId.None;
++
++    public bool TryShowDemoHandRemotely() => CanShowDemoHandRemotely &&
++        TryQueueDemoHandGuidance(_activeWordDefinition, "remote manual guidance", true);
++
++    bool TryQueueDemoHandGuidance(LearnWordDefinition word, string context, bool manual = false)
++    {
++        if (!manual && SessionRuntimeConfigurationStore.DemoHandManualOnly)
++            return false;
++
+         if (word.SignId == SignId.None)
+         {
+             Debug.LogWarning($"[LearnFlowController] No SignId assigned for {context} demo hand guidance.", this);
+--- a/Assets/Scripts/LearnOpening/LearnOpeningFlowController.cs
++++ b/Assets/Scripts/LearnOpening/LearnOpeningFlowController.cs
+@@ -575,8 +575,17 @@
+         return queued;
+     }
+ 
+-    bool TryQueueDemoHandGuidance(SignId signId, string context)
+-    {
++    public bool CanShowDemoHandRemotely => CurrentPhase == LearnOpeningFlowPhase.PracticeActive &&
++        _runtimePracticeContent != null && _runtimePracticeContent.SignId != SignId.None;
++
++    public bool TryShowDemoHandRemotely() => CanShowDemoHandRemotely &&
++        TryQueueDemoHandGuidance(_runtimePracticeContent.SignId, "remote manual guidance", true);
++
++    bool TryQueueDemoHandGuidance(SignId signId, string context, bool manual = false)
++    {
++        if (!manual && SessionRuntimeConfigurationStore.DemoHandManualOnly)
++            return false;
++
+         if (signId == SignId.None)
+         {
+             Debug.LogWarning($"[LearnOpeningFlowController] No SignId assigned for {context} demo hand guidance.", this);
+--- a/Assets/Scripts/LearnText/LearnTextFlowController.cs
++++ b/Assets/Scripts/LearnText/LearnTextFlowController.cs
+@@ -845,7 +845,7 @@
+ 
+         bool waitingForDemoHand = false;
+         bool playedGuidance;
+-        if (useDemoHandGuidance)
++        if (useDemoHandGuidance && !SessionRuntimeConfigurationStore.DemoHandManualOnly)
+         {
+             waitingForDemoHand = TryQueueDemoHandGuidance(word, $"sentence {sentenceIndex + 1} word {wordIndex + 1} guidance");
+             playedGuidance = waitingForDemoHand;
+@@ -1086,8 +1086,20 @@
+         return queued;
+     }
+ 
+-    bool TryQueueDemoHandGuidance(LearnTextWordDefinition word, string context)
+-    {
++    public bool CanShowDemoHandRemotely => CurrentPhase == LearnTextFlowPhase.InteractivePractice &&
++        _runtimeSentences != null && _activePracticeSentenceIndex >= 0 && _activePracticeSentenceIndex < _runtimeSentences.Length &&
++        _runtimeSentences[_activePracticeSentenceIndex].WordSteps != null && _activePracticeWordIndex >= 0 &&
++        _activePracticeWordIndex < _runtimeSentences[_activePracticeSentenceIndex].WordSteps.Length &&
++        _runtimeSentences[_activePracticeSentenceIndex].WordSteps[_activePracticeWordIndex].SignId != SignId.None;
++
++    public bool TryShowDemoHandRemotely() => CanShowDemoHandRemotely &&
++        TryQueueDemoHandGuidance(_runtimeSentences[_activePracticeSentenceIndex].WordSteps[_activePracticeWordIndex], "remote manual guidance", true);
++
++    bool TryQueueDemoHandGuidance(LearnTextWordDefinition word, string context, bool manual = false)
++    {
++        if (!manual && SessionRuntimeConfigurationStore.DemoHandManualOnly)
++            return false;
++
+         if (word.SignId == SignId.None)
+         {
+             Debug.LogWarning($"[LearnTextFlowController] No SignId assigned for {context} demo hand guidance.", this);
+--- a/Assets/Scripts/Gaming/Systems/GamingRecognitionCoordinator.cs
++++ b/Assets/Scripts/Gaming/Systems/GamingRecognitionCoordinator.cs
+@@ -656,8 +656,16 @@
+         DemoHandApi.Hide();
+     }
+ 
+-    bool TryPlayAdaptiveDemoHand()
+-    {
++    public bool CanShowDemoHandRemotely => _sceneController != null && _sceneController.IsGameplayActive &&
++        _isJudgmentRunning && _activeTargetGroup.HasSelection && _activeTargetGroup.TargetSignId != SignId.None;
++
++    public bool TryShowDemoHandRemotely() => CanShowDemoHandRemotely && TryPlayAdaptiveDemoHand(true);
++
++    bool TryPlayAdaptiveDemoHand(bool manual = false)
++    {
++        if (!manual && SessionRuntimeConfigurationStore.DemoHandManualOnly)
++            return false;
++
+         SignId signId = _activeTargetGroup.TargetSignId;
+         if (signId == SignId.None)
+             return false;
+--- a/Assets/Scripts/Gaming/GamingSceneController.cs
++++ b/Assets/Scripts/Gaming/GamingSceneController.cs
+@@ -50,6 +50,12 @@
+ 
+     public bool CanStartRemotely => Phase == GamingScenePhase.RulesGate && _startGateController != null && _startGateController.CanConfirmStart;
+ 
++    public bool CanShowDemoHandRemotely => Phase == GamingScenePhase.Gameplay &&
++        GetComponentInChildren<GamingRecognitionCoordinator>()?.CanShowDemoHandRemotely == true;
++
++    public bool TryShowDemoHandRemotely() => CanShowDemoHandRemotely &&
++        GetComponentInChildren<GamingRecognitionCoordinator>().TryShowDemoHandRemotely();
++
+     public bool TryStartRemotely() => CanStartRemotely && _startGateController.TryConfirmStart();
+ 
+     public event System.Action<GamingGameplaySnapshot> GameplayStateChanged;
+--- a/Assets/Scripts/General/SceneFlow/SceneFlowController.cs
++++ b/Assets/Scripts/General/SceneFlow/SceneFlowController.cs
+@@ -78,6 +78,39 @@
+         { code = "gaming_not_waiting"; return false; }
+         code = string.Empty;
+         return true;
++    }
++
++    public bool CanShowDemoHandRemotely => State == SceneFlowTransitionState.Active &&
++        DemoHandApi.IsAvailable && DemoHandApi.IsPlaybackIdle &&
++        GestureJudgmentApi.TryGetActiveAttempt(out GestureJudgmentAttemptSnapshot attempt) &&
++        attempt.SessionId == _flowPlan?.SessionId && attempt.SectionInstanceId == CurrentExecution?.InstanceId &&
++        attempt.SectionGeneration == CurrentExecution?.Generation &&
++        (_activeLifecycleParticipant switch
++        {
++            LearnFlowController word => word.CanShowDemoHandRemotely,
++            LearnOpeningFlowController opening => opening.CanShowDemoHandRemotely,
++            LearnTextFlowController text => text.CanShowDemoHandRemotely,
++            GamingSceneController gaming => gaming.CanShowDemoHandRemotely,
++            _ => false,
++        });
++
++    public bool TryShowDemoHand(string sectionInstanceId, string attemptId, out string code)
++    {
++        if (!GestureJudgmentApi.TryGetActiveAttempt(out GestureJudgmentAttemptSnapshot attempt) ||
++            attempt.AttemptId != attemptId || attempt.SectionInstanceId != sectionInstanceId)
++        { code = "stale_attempt"; return false; }
++        if (!CanShowDemoHandRemotely)
++        { code = "demo_hand_not_ready"; return false; }
++        bool started = _activeLifecycleParticipant switch
++        {
++            LearnFlowController word => word.TryShowDemoHandRemotely(),
++            LearnOpeningFlowController opening => opening.TryShowDemoHandRemotely(),
++            LearnTextFlowController text => text.TryShowDemoHandRemotely(),
++            GamingSceneController gaming => gaming.TryShowDemoHandRemotely(),
++            _ => false,
++        };
++        code = started ? string.Empty : "demo_hand_unavailable";
++        return started;
+     }
+ 
+     void Awake()
+--- a/Assets/Scripts/General/CloudSessionControl/Remote/RemoteSessionProtocol.cs
++++ b/Assets/Scripts/General/CloudSessionControl/Remote/RemoteSessionProtocol.cs
+@@ -15,6 +15,7 @@
+     ForceJudgment = 3,
+     RequestSnapshot = 4,
+     StartGaming = 5,
++    ShowDemoHand = 6,
+ }
+ 
+ public sealed class RemoteCommandEnvelope
+@@ -185,6 +186,7 @@
+         RemoteCommandType.ForceJudgment => "force_judgment",
+         RemoteCommandType.RequestSnapshot => "request_snapshot",
+         RemoteCommandType.StartGaming => "start_gaming",
++        RemoteCommandType.ShowDemoHand => "show_demo_hand",
+         _ => "unknown",
+     };
+ 
+@@ -234,6 +236,16 @@
+                 if (outcome != "correct" && outcome != "wrong")
+                 {
+                     error = "outcome must be 'correct' or 'wrong'.";
++                    return false;
++                }
++                return true;
++
++            case RemoteCommandType.ShowDemoHand:
++                if (!HasOnlyFields(payload, new HashSet<string>(StringComparer.Ordinal) { "sectionInstanceId", "attemptId" }, out string handUnknown) ||
++                    !TryReadIdentity(payload, "sectionInstanceId", out _, out error) ||
++                    !TryReadIdentity(payload, "attemptId", out _, out error))
++                {
++                    if (string.IsNullOrEmpty(error)) error = $"Unknown show_demo_hand field '{handUnknown}'.";
+                     return false;
+                 }
+                 return true;
+@@ -270,6 +282,7 @@
+             "force_judgment" => RemoteCommandType.ForceJudgment,
+             "request_snapshot" => RemoteCommandType.RequestSnapshot,
+             "start_gaming" => RemoteCommandType.StartGaming,
++            "show_demo_hand" => RemoteCommandType.ShowDemoHand,
+             _ => RemoteCommandType.Unknown,
+         };
+         return type != RemoteCommandType.Unknown;
+--- a/Assets/Scripts/General/CloudSessionControl/Remote/RemoteSessionCommandProcessor.cs
++++ b/Assets/Scripts/General/CloudSessionControl/Remote/RemoteSessionCommandProcessor.cs
+@@ -91,6 +91,7 @@
+             case RemoteCommandType.AdvanceSubsection: HandleAdvance(entry); break;
+             case RemoteCommandType.ForceJudgment: HandleForceJudgment(entry); break;
+             case RemoteCommandType.StartGaming: HandleStartGaming(entry); break;
++            case RemoteCommandType.ShowDemoHand: HandleShowDemoHand(entry); break;
+             case RemoteCommandType.RequestSnapshot:
+                 Accept(entry, "accepted", "snapshot_requested", string.Empty, string.Empty, true);
+                 QueueSnapshot();
+@@ -153,6 +154,17 @@
+         { Reject(entry, code, "Gaming is not waiting to start in the expected execution."); return; }
+         entry.TargetInstanceId = expected;
+         Accept(entry, "accepted", "gaming_start_requested", string.Empty, expected, false);
++    }
++
++    void HandleShowDemoHand(RemoteCommandLedgerEntry entry)
++    {
++        string section = entry.Command.Payload.Value<string>("sectionInstanceId");
++        string attempt = entry.Command.Payload.Value<string>("attemptId");
++        string code = "demo_hand_not_ready";
++        if (_sceneFlow == null || !_sceneFlow.TryShowDemoHand(section, attempt, out code))
++        { Reject(entry, code, "Demo hand target is no longer available or playback is busy."); return; }
++        Accept(entry, "accepted", "demo_hand_started", string.Empty, section, false);
++        CompleteNavigation(entry, "activated", _sceneFlow.CurrentExecution, string.Empty);
+     }
+ 
+     void HandleForceJudgment(RemoteCommandLedgerEntry entry)
+@@ -268,7 +280,8 @@
+         return string.Join("|", _sceneFlow?.State.ToString() ?? "none", _sceneFlow?.BootPlanState.ToString() ?? "none",
+             _sceneFlow?.CurrentExecution?.InstanceId ?? string.Empty, _sceneFlow?.TransitionTarget?.InstanceId ?? string.Empty,
+             _sceneFlow?.PendingLandingTarget?.InstanceId ?? string.Empty, _sceneFlow?.ActiveTransitionId ?? string.Empty,
+-            _sceneFlow?.FatalDetail ?? string.Empty, phase.ToString(), epoch.ToString(), phaseBusy.ToString(), gamingPhase.ToString(), canStartGaming.ToString(), attempt?.AttemptId ?? string.Empty);
++            _sceneFlow?.FatalDetail ?? string.Empty, phase.ToString(), epoch.ToString(), phaseBusy.ToString(), gamingPhase.ToString(), canStartGaming.ToString(), attempt?.AttemptId ?? string.Empty,
++            (_sceneFlow?.CanShowDemoHandRemotely ?? false).ToString(), DemoHandApi.IsPlaying.ToString());
+     }
+ 
+     void QueueSnapshot()
+--- a/Assets/Scripts/General/CloudSessionControl/Remote/RemoteSessionMessageWriter.cs
++++ b/Assets/Scripts/General/CloudSessionControl/Remote/RemoteSessionMessageWriter.cs
+@@ -100,7 +100,7 @@
+         JObject message = Base("client_hello", sessionId, deviceId, connectionId);
+         message["configRevision"] = configRevision;
+         message["deviceStateRevision"] = stateRevision;
+-        message["capabilities"] = new JArray("navigate_section", "advance_subsection", "force_judgment", "request_snapshot", "start_gaming");
++        message["capabilities"] = new JArray("navigate_section", "advance_subsection", "force_judgment", "request_snapshot", "start_gaming", "show_demo_hand");
+         return Serialize(message);
+     }
+ 
+@@ -146,7 +146,7 @@
+         message["deviceEventSequence"] = eventSequence;
+         message["connectionState"] = "connected";
+         message["lastProcessedServerSequence"] = lastProcessedServerSequence;
+-        message["capabilities"] = new JArray("navigate_section", "advance_subsection", "force_judgment", "request_snapshot", "start_gaming");
++        message["capabilities"] = new JArray("navigate_section", "advance_subsection", "force_judgment", "request_snapshot", "start_gaming", "show_demo_hand");
+ 
+         if (controller == null)
+         {
+@@ -190,6 +190,13 @@
+                 : JValue.CreateNull();
+         }
+ 
++        message["demoHand"] = new JObject
++        {
++            ["canShow"] = controller?.CanShowDemoHandRemotely ?? false,
++            ["isPlaying"] = DemoHandApi.IsPlaying,
++            ["manualOnly"] = SessionRuntimeConfigurationStore.DemoHandManualOnly,
++        };
++
+         if (GestureJudgmentApi.TryGetActiveAttempt(out GestureJudgmentAttemptSnapshot attempt))
+         {
+             message["activeJudgment"] = new JObject

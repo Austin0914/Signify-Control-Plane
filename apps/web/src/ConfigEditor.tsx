@@ -19,6 +19,7 @@ export type SessionConfig = {
   configRevision: number;
   contentCatalogVersion: "signify-core-1";
   flow: SectionId[];
+  demoHandManualOnly?: boolean;
   content: {
     learnOpening: { wordId: WordId };
     learnWord: { words: Array<{ puzzleNumber: number; wordId: WordId }> };
@@ -123,6 +124,11 @@ export function ConfigEditor({ report }: { report: (message: string, tone?: "inf
     patchContent("gaming", checked ? { ...gaming, autoStart: true } : gaming);
   }
 
+  function setDemoHandManualOnly(checked: boolean) {
+    const { demoHandManualOnly: _manualOnly, ...rest } = config;
+    update(checked ? { ...rest, demoHandManualOnly: true } : rest);
+  }
+
   async function validate() {
     if (issues.length) return report(`請先修正 ${issues.length} 個欄位問題。`, "error");
     setBusy("validate");
@@ -176,6 +182,7 @@ export function ConfigEditor({ report }: { report: (message: string, tone?: "inf
       <fieldset className="config-fields" disabled={loading || Boolean(busy)}>
       {editorSection === "flow" && <section id="config-flow" className="surface form-section">
         <div className="section-heading"><div><h2>安排課程順序</h2><p>保留的階段請依「課程開場 → 開場詞彙 → 單字學習 → 課文學習 → 遊戲練習 → 課程結束」排列，可省略不需要的學習階段。「定位與準備」可在遊戲之前重複加入。</p></div></div>
+        <label className="flow-start-option"><input type="checkbox" checked={config.demoHandManualOnly === true} onChange={(event) => setDemoHandManualOnly(event.target.checked)}/><span>漂浮手僅由後台觸發<small>套用全部學習階段與遊戲；答錯時不自動示範。發布後重新開啟 App 生效。</small></span></label>
         <ol className="flow-builder">{config.flow.length ? config.flow.map((section, index) => <li className={`flow-step ${movedKey === flowKeys[index] ? "recently-moved" : ""} ${routeIssue?.index === index ? "has-error" : ""}`} key={flowKeys[index]}>
           <span className="flow-index">{String(index + 1).padStart(2, "0")}</span>
           <div className="flow-step-body"><div className="flow-step-title"><strong>{labelFor(sectionOptions, section)}</strong><span>{courseStages.find((stage) => stage.id === section)?.description}</span></div>

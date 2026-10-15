@@ -426,3 +426,7 @@ input:hover, select:hover { border-color: #c9c2ba; } .field input:disabled { col
   .config-workspace .page-heading .eyebrow { display: none; }
   .config-workspace .section-heading { margin-bottom: 16px; }
 }
+
+.demo-hand-control { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 20px; margin-block: 16px; }
+.demo-hand-control p { margin: 6px 0 0; color: var(--muted); }
+.demo-hand-control small { flex-basis: 100%; color: var(--muted); }
